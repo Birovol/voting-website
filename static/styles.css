@@ -45,26 +45,27 @@ body {
 				radial-gradient(circle at 85% 80%, rgba(99,102,241,0.04), transparent 16%),
 				linear-gradient(180deg, #f0f6ff 0%, #f8f9fa 35%, #ffffff 100%);
 	background-attachment: fixed;
-	color: #10203a;
+	color: var(--text, #10203a);
 	min-height: 100%;
 	padding-top: 72px; /* space for fixed navbar */
 }
 
 /* Dark theme overrides */
-.theme-dark { background: linear-gradient(180deg,#0b1220 0%, #07101a 100%) fixed; color: #e7eef8; }
-.theme-dark main.container { background: rgba(8,10,14,0.72); color: #e7eef8; }
+/* theme-dark specifics (kept for compatibility) — colors now driven by CSS variables */
+.theme-dark { background: linear-gradient(180deg,#0b1220 0%, #07101a 100%) fixed; }
+.theme-dark main.container { background: var(--surface); }
 .theme-dark .hero-overlay { background: linear-gradient(180deg, rgba(0,0,0,0.55), rgba(0,0,0,0.25)); }
 .theme-dark .navbar { background: transparent !important; }
 
 /* Additional dark-mode color fixes so text is readable on dark backgrounds */
-body.theme-dark, body.theme-dark main, body.theme-dark main.container { color: #e7eef8; }
-body.theme-dark a, body.theme-dark .nav-link, body.theme-dark .navbar-brand { color: #ffffff !important; }
-body.theme-dark p, body.theme-dark .lead, body.theme-dark h1, body.theme-dark h2, body.theme-dark h3, body.theme-dark h4, body.theme-dark h5, body.theme-dark h6 { color: #e7eef8; }
-body.theme-dark .text-muted { color: rgba(231,238,248,0.64) !important; }
-body.theme-dark .list-group-item { color: #e7eef8; border-color: rgba(255,255,255,0.04); }
-body.theme-dark #votesLegend, body.theme-dark .legend-item, body.theme-dark .legend-left { color: #e7eef8; }
+body.theme-dark, body.theme-dark main, body.theme-dark main.container { color: var(--text); }
+body.theme-dark a, body.theme-dark .nav-link, body.theme-dark .navbar-brand { color: var(--text) !important; }
+body.theme-dark p, body.theme-dark .lead, body.theme-dark h1, body.theme-dark h2, body.theme-dark h3, body.theme-dark h4, body.theme-dark h5, body.theme-dark h6 { color: var(--text); }
+body.theme-dark .text-muted { color: var(--muted) !important; }
+body.theme-dark .list-group-item { color: var(--text); border-color: rgba(255,255,255,0.04); }
+body.theme-dark #votesLegend, body.theme-dark .legend-item, body.theme-dark .legend-left { color: var(--text); }
 body.theme-dark .legend-bar { background: rgba(255,255,255,0.06); }
-body.theme-dark .center-label, body.theme-dark .small-donut .center-label { color: #e7eef8; }
+body.theme-dark .center-label, body.theme-dark .small-donut .center-label { color: var(--text); }
 body.theme-dark .progress { background: rgba(255,255,255,0.04); }
 body.theme-dark .progress-bar { box-shadow: none; }
 /* make alerts a bit darker to match theme */

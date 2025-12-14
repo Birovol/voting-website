@@ -10,7 +10,22 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
     <link href="{{ url_for('static', filename='styles.css') }}" rel="stylesheet">
     <style>
-      :root { --primary: {{ settings.get('primary_color','#0d6efd') if settings else '#0d6efd' }}; --candidates-opacity: {{ settings.get('candidates_opacity','0.12') }}; }
+      /* CSS variables control site colors so theme toggling updates text/background consistently */
+      :root {
+        --primary: {{ settings.get('primary_color','#0d6efd') if settings else '#0d6efd' }};
+        --candidates-opacity: {{ settings.get('candidates_opacity','0.12') }};
+        --bg: #ffffff;
+        --surface: rgba(255,255,255,0.94);
+        --text: #10203a;
+        --muted: #6c757d;
+      }
+      /* Dark theme overrides - applied when <body class="theme-dark"> */
+      body.theme-dark {
+        --bg: #07101a;
+        --surface: rgba(8,10,14,0.72);
+        --text: #e7eef8;
+        --muted: rgba(231,238,248,0.64);
+      }
       /* Festive modal styling */
       .grad-banner { background: linear-gradient(45deg,#ff6b6b,#ffd166); color:#fff; padding:1.5rem; border-radius:0.6rem; text-align:center }
       .confetti-canvas { position: fixed; pointer-events: none; left:0; top:0; width:100%; height:100%; z-index:1050 }
@@ -25,7 +40,7 @@
       .fade-in.visible { opacity: 1; transform: translateY(0); }
       /* override bootstrap primary color with site setting */
       .bg-primary, .btn-primary { background-color: var(--primary) !important; border-color: var(--primary) !important; }
-      .navbar-dark .navbar-brand, .navbar-dark .navbar-nav .nav-link { color: #fff !important; }
+      .navbar-dark .navbar-brand, .navbar-dark .navbar-nav .nav-link { color: var(--text) !important; }
     </style>
   </style>
 </head>
@@ -59,10 +74,10 @@
     <div class="hero-wrap position-relative mb-4">
       <div class="hero mb-4" style="background-image: url('{{ url_for('static', filename='uploads/' ~ header) if header else '' }}');">
         <div class="hero-overlay"></div>
-        <div class="container text-center text-white position-relative hero-inner">
+        <div class="container text-center text-dark position-relative hero-inner">
           <h1 class="display-5 fw-bold hero-title">{{ settings.get('site_title') if settings else 'Выбор Учителя Года' }}</h1>
           <p class="lead hero-sub">{{ settings.get('banner_text') if settings else '' }}</p>
-          <div class="hero-cta mt-4"><a href="#candidates" class="btn btn-light btn-lg">Проголосовать</a></div>
+          <div class="hero-cta mt-4"><a href="#candidates" class="btn btn-light btn-lg"style="color: #000 !important;">Проголосовать</a></div>
         </div>
       </div>
       <div class="hero-badge">2025</div>
@@ -351,6 +366,16 @@
             setTimeout(function(){ smoothFocus(id); }, 160);
           }
         })();
+
+        // If we navigated here after an AJAX fallback (non-JSON response), restore scroll/focus and show any queued toast
+        try{
+          var pending_scroll = sessionStorage.getItem('pending_scroll');
+          var pending_focus = sessionStorage.getItem('pending_focus');
+          var pending_toast = sessionStorage.getItem('pending_toast');
+          if(pending_scroll){ window.scrollTo(0, parseInt(pending_scroll,10) || 0); sessionStorage.removeItem('pending_scroll'); }
+          if(pending_focus){ setTimeout(function(){ try{ window.smoothFocus(pending_focus); }catch(e){} }, 160); sessionStorage.removeItem('pending_focus'); }
+          if(pending_toast){ try{ window.showToast(pending_toast, 'info'); }catch(e){} sessionStorage.removeItem('pending_toast'); }
+        }catch(e){}
       });
     </script>
 </body>

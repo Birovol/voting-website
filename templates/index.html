@@ -274,16 +274,38 @@
                     e.preventDefault();
                     var btn = form.querySelector('button[type="submit"]');
                     if(btn){ btn.disabled = true; btn.classList.add('btn-pressed'); }
+                    // perform AJAX post with robust fallback: if server doesn't return JSON, reload while preserving focus/scroll
                     fetch(form.action, { method: 'POST', body: new FormData(form), credentials: 'same-origin', headers: {'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json'} })
-                        .then(r=>r.json())
-                        .then(json=>{
+                        .then(function(r){
+                            // attempt to parse JSON; if parsing fails, fallback
+                            return r.json().catch(function(){ return { __not_json: true, status: r.status }; });
+                        })
+                        .then(function(json){
                             if(btn){ btn.disabled = false; btn.classList.remove('btn-pressed'); }
-                            if(json){ if(json.message) window.showToast(json.message, json.ok ? 'success' : 'danger'); if(json.teachers){ updateFromServer(json); if(json.focus){ window.smoothFocus(json.focus); } } }
+                            if(json && json.__not_json){
+                                // fallback: preserve scroll and focus info then reload so server flash will show
+                                try{ sessionStorage.setItem('pending_scroll', String(window.scrollY || 0)); }catch(e){}
+                                try{ var m = form.action.match(/\/(?:vote|unvote)\/(\d+)/); if(m){ sessionStorage.setItem('pending_focus', 'candidate-' + m[1]); } }catch(e){}
+                                // reload to show server-side flash and ensure consistency
+                                location.reload();
+                                return;
+                            }
+                            if(json){
+                                if(json.message){ window.showToast(json.message, json.category || (json.ok ? 'success' : 'danger')); }
+                                else {
+                                    // Ensure important actions (like unvote) always notify the user
+                                    try{ if(form.action && form.action.indexOf('/unvote/') !== -1){ window.showToast('Ваш голос отменён', 'info'); } }catch(e){}
+                                }
+                                if(json.teachers){ updateFromServer(json); if(json.focus){ window.smoothFocus(json.focus); } }
+                            }
                             // init tooltips for new buttons
                             if(window.initTooltips) window.initTooltips();
-                        }).catch(err=>{
+                        }).catch(function(err){
                             if(btn){ btn.disabled = false; btn.classList.remove('btn-pressed'); }
-                            try{ form.submit(); }catch(e){}
+                            // network error: store state and reload to get server flash
+                            try{ sessionStorage.setItem('pending_scroll', String(window.scrollY || 0)); }catch(e){}
+                            try{ var m = form.action.match(/\/(?:vote|unvote)\/(\d+)/); if(m){ sessionStorage.setItem('pending_focus', 'candidate-' + m[1]); } }catch(e){}
+                            location.reload();
                         });
                 });
             });

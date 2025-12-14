@@ -65,7 +65,8 @@ def init_db():
             db.execute("INSERT INTO settings (key, value) VALUES (?, ?)", ("header_image", "") )
             db.execute("INSERT INTO settings (key, value) VALUES (?, ?)", ("background_image", "") )
             db.execute("INSERT INTO settings (key, value) VALUES (?, ?)", ("use_background", "0") )
-            db.execute("INSERT INTO settings (key, value) VALUES (?, ?)", ("theme", "light") )
+            # Make dark theme the default
+            db.execute("INSERT INTO settings (key, value) VALUES (?, ?)", ("theme", "dark") )
             db.execute("INSERT INTO settings (key, value) VALUES (?, ?)", ("navbar_style", "transparent") )
             db.execute("INSERT INTO settings (key, value) VALUES (?, ?)", ("candidates_opacity", "0.12") )
             db.execute("INSERT INTO settings (key, value) VALUES (?, ?)", ("language", "ru") )
@@ -118,6 +119,9 @@ def inject_settings():
             settings['theme'] = cookie_theme
     except Exception:
         pass
+    # Default to dark theme for the site if not explicitly set
+    if 'theme' not in settings or settings.get('theme') not in ('light', 'dark'):
+        settings['theme'] = 'dark'
     # Respect environment flag to disable confetti/celebrations if desired
     try:
         import os as _os
@@ -213,35 +217,51 @@ def vote(teacher_id):
     if not voter_id:
         voter_id = secrets.token_hex(16)
 
+    # Track a user-facing message & category so we can return it in JSON for AJAX clients
+    msg = None
+    category = 'info'
+    ok = False
     with get_db() as db:
         # Check if this voter_id already has a vote (so we can change it)
         existing = db.execute("SELECT teacher_id FROM votes WHERE voter_id = ?", (voter_id,)).fetchone()
         if existing:
             old_tid = existing['teacher_id']
             if old_tid == teacher_id:
-                flash("Вы уже голосовали за этого учителя.", "warning")
+                msg = "Вы уже голосовали за этого учителя."
+                category = 'warning'
+                ok = False
             else:
                 # perform change: decrement old teacher, update vote row, increment new teacher
                 try:
                     db.execute("UPDATE teachers SET votes = CASE WHEN votes > 0 THEN votes - 1 ELSE 0 END WHERE id = ?", (old_tid,))
                     db.execute("UPDATE votes SET teacher_id = ?, ip = ?, timestamp = CURRENT_TIMESTAMP WHERE voter_id = ?", (teacher_id, ip, voter_id))
                     db.execute("UPDATE teachers SET votes = votes + 1 WHERE id = ?", (teacher_id,))
-                    flash("Ваш голос изменён.", "success")
+                    msg = "Ваш голос изменён."
+                    category = 'success'
+                    ok = True
                 except sqlite3.IntegrityError:
                     # fallback: if update violated some constraint, warn the user
-                    flash("Не удалось сменить голос из-за конфликта; попробуйте позже.", "warning")
+                    msg = "Не удалось сменить голос из-за конфликта; попробуйте позже."
+                    category = 'warning'
+                    ok = False
         else:
             # New voter: ensure IP hasn't voted for this teacher already
             ip_existing = db.execute("SELECT 1 FROM votes WHERE ip = ? AND teacher_id = ?", (ip, teacher_id)).fetchone()
             if ip_existing:
-                flash("С этого IP уже был голос за этого учителя.", "warning")
+                msg = "С этого IP уже был голос за этого учителя."
+                category = 'warning'
+                ok = False
             else:
                 try:
                     db.execute("UPDATE teachers SET votes = votes + 1 WHERE id = ?", (teacher_id,))
                     db.execute("INSERT INTO votes (ip, teacher_id, voter_id) VALUES (?, ?, ?)", (ip, teacher_id, voter_id))
-                    flash("Ваш голос учтён!", "success")
+                    msg = "Ваш голос учтён!"
+                    category = 'success'
+                    ok = True
                 except sqlite3.IntegrityError:
-                    flash("Голос не был принят: вы уже голосовали.", "warning")
+                    msg = "Голос не был принят: вы уже голосовали."
+                    category = 'warning'
+                    ok = False
     # If this looks like an XHR/fetch request, return JSON with updated counts
     ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest' or request.is_json or 'application/json' in request.accept_mimetypes
     # Build response payload
@@ -252,9 +272,16 @@ def vote(teacher_id):
         vr = db.execute("SELECT teacher_id FROM votes WHERE voter_id = ?", (voter_id,)).fetchone()
         if vr:
             my_vote = vr['teacher_id']
+    # For non-AJAX flows, keep using flash messages for compatibility
+    if not ajax:
+        try:
+            flash(msg or 'Действие выполнено.', category or 'info')
+        except Exception:
+            pass
+
     if ajax:
         from flask import jsonify
-        resp = jsonify({'ok': True, 'message': 'Голос обработан', 'teachers': teachers_list, 'my_vote': my_vote, 'focus': f'candidate-{teacher_id}'})
+        resp = jsonify({'ok': bool(ok), 'message': msg or 'Действие выполнено.', 'category': category, 'teachers': teachers_list, 'my_vote': my_vote, 'focus': f'candidate-{teacher_id}'})
         resp.set_cookie('voter_id', voter_id, max_age=60*60*24*365, httponly=True, samesite='Lax')
         return resp
     # fallback for normal form submit: redirect back to index with focus param
@@ -268,20 +295,35 @@ def vote(teacher_id):
 @app.route('/unvote/<int:teacher_id>', methods=['POST'])
 def unvote(teacher_id):
     voter_id = request.cookies.get('voter_id')
+    msg = None
+    category = 'info'
+    ok = False
     if not voter_id:
-        flash('Вы ещё не голосовали.', 'warning')
-        return redirect(url_for('index'))
-    with get_db() as db:
-        row = db.execute('SELECT teacher_id FROM votes WHERE voter_id = ?', (voter_id,)).fetchone()
-        if not row:
-            flash('Вы ещё не голосовали.', 'warning')
-        else:
-            if row['teacher_id'] != teacher_id:
-                flash('Нельзя отменить голос за другого кандидата.', 'warning')
+        msg = 'Вы ещё не голосовали.'
+        category = 'warning'
+        ok = False
+        # For non-AJAX redirect immediately
+        if not (request.headers.get('X-Requested-With') == 'XMLHttpRequest' or request.is_json or 'application/json' in request.accept_mimetypes):
+            flash(msg, category)
+            return redirect(url_for('index'))
+    else:
+        with get_db() as db:
+            row = db.execute('SELECT teacher_id FROM votes WHERE voter_id = ?', (voter_id,)).fetchone()
+            if not row:
+                msg = 'Вы ещё не голосовали.'
+                category = 'warning'
+                ok = False
             else:
-                db.execute('DELETE FROM votes WHERE voter_id = ?', (voter_id,))
-                db.execute('UPDATE teachers SET votes = CASE WHEN votes > 0 THEN votes - 1 ELSE 0 END WHERE id = ?', (teacher_id,))
-                flash('Ваш голос отменён.', 'info')
+                if row['teacher_id'] != teacher_id:
+                    msg = 'Нельзя отменить голос за другого кандидата.'
+                    category = 'warning'
+                    ok = False
+                else:
+                    db.execute('DELETE FROM votes WHERE voter_id = ?', (voter_id,))
+                    db.execute('UPDATE teachers SET votes = CASE WHEN votes > 0 THEN votes - 1 ELSE 0 END WHERE id = ?', (teacher_id,))
+                    msg = 'Ваш голос отменён.'
+                    category = 'info'
+                    ok = True
     # Support AJAX responses
     ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest' or request.is_json or 'application/json' in request.accept_mimetypes
     with get_db() as db:
@@ -291,9 +333,16 @@ def unvote(teacher_id):
         vr = db.execute("SELECT teacher_id FROM votes WHERE voter_id = ?", (voter_id,)).fetchone()
         if vr:
             my_vote = vr['teacher_id']
+    # For non-AJAX flows, flash the message so server-rendered toasts appear
+    if not ajax:
+        try:
+            flash(msg or 'Действие выполнено.', category or 'info')
+        except Exception:
+            pass
+
     if ajax:
         from flask import jsonify
-        resp = jsonify({'ok': True, 'message': 'Голос отменён', 'teachers': teachers_list, 'my_vote': my_vote, 'focus': f'candidate-{teacher_id}'})
+        resp = jsonify({'ok': bool(ok), 'message': msg or 'Действие выполнено.', 'category': category, 'teachers': teachers_list, 'my_vote': my_vote, 'focus': f'candidate-{teacher_id}'})
         resp.set_cookie('voter_id', voter_id, max_age=60*60*24*365, httponly=True, samesite='Lax')
         return resp
     redirect_url = url_for('index') + f"?focus=candidate-{teacher_id}"
