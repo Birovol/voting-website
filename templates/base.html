@@ -1,0 +1,357 @@
+﻿<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>{% block title %}Выбор Учителя Года{% endblock %}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <link href="{{ url_for('static', filename='styles.css') }}" rel="stylesheet">
+    <style>
+      :root { --primary: {{ settings.get('primary_color','#0d6efd') if settings else '#0d6efd' }}; --candidates-opacity: {{ settings.get('candidates_opacity','0.12') }}; }
+      /* Festive modal styling */
+      .grad-banner { background: linear-gradient(45deg,#ff6b6b,#ffd166); color:#fff; padding:1.5rem; border-radius:0.6rem; text-align:center }
+      .confetti-canvas { position: fixed; pointer-events: none; left:0; top:0; width:100%; height:100%; z-index:1050 }
+      /* larger teacher photos (user requested bigger) */
+      .teacher-photo { width: 540px; height: 540px; object-fit: cover; border-radius: 12px; }
+      @media (max-width: 992px) { .teacher-photo { width: 320px; height: 320px } }
+      @media (max-width: 576px) { .teacher-photo { width: 140px; height: 140px } }
+      /* small decorative round badge in hero */
+      .hero-badge { position: absolute; right: 2rem; top: 2rem; width:72px; height:72px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:700; color:white; background: linear-gradient(45deg,#ffd166,#ff6b6b); box-shadow: 0 8px 18px rgba(0,0,0,0.12) }
+      @media (max-width: 576px) { .teacher-photo { width:64px; height:64px } }
+      .fade-in { opacity: 0; transform: translateY(20px); transition: opacity 700ms ease, transform 700ms ease; }
+      .fade-in.visible { opacity: 1; transform: translateY(0); }
+      /* override bootstrap primary color with site setting */
+      .bg-primary, .btn-primary { background-color: var(--primary) !important; border-color: var(--primary) !important; }
+      .navbar-dark .navbar-brand, .navbar-dark .navbar-nav .nav-link { color: #fff !important; }
+    </style>
+  </style>
+</head>
+{# Apply theme class if set in settings (inject_settings may prefer cookie) #}
+<body class="{% if settings.get('theme') == 'dark' %}theme-dark{% endif %}" style="{% if settings.get('use_background','0') == '1' and (settings.get('background_image') or settings.get('header_image')) %}background-image: url('{{ url_for('static', filename='uploads/' ~ (settings.get('background_image') or settings.get('header_image')) ) }}'); background-size: cover; background-position: center; background-attachment: fixed;{% endif %}">
+    <nav class="navbar navbar-expand-lg navbar-dark navbar-style-{{ settings.get('navbar_style','transparent') }} mb-4">
+      <div class="container">
+        <a class="navbar-brand" href="/">Учитель Года</a>
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#mainNav" aria-controls="mainNav" aria-expanded="false" aria-label="Toggle navigation">
+          <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="mainNav">
+          <ul class="navbar-nav ms-auto">
+            <li class="nav-item"><a class="nav-link" href="{{ url_for('index') }}">{{ tr('home') }}</a></li>
+            <li class="nav-item d-flex align-items-center me-2">
+              <button id="theme-toggle" class="btn btn-outline-light btn-sm" data-bs-toggle="tooltip" title="Переключить тему">{% if settings.get('theme') == 'dark' %}🌙{% else %}☀️{% endif %}</button>
+            </li>
+            {% if session.admin_logged_in %}
+              <li class="nav-item"><a class="nav-link" href="{{ url_for('admin_panel') }}">{{ tr('admin') }}</a></li>
+              <li class="nav-item"><a class="nav-link" href="{{ url_for('admin_logout') }}">{{ tr('logout') }}</a></li>
+            {% else %}
+              <li class="nav-item"><a class="nav-link" href="{{ url_for('admin_login') }}">{{ tr('login') }}</a></li>
+            {% endif %}
+          </ul>
+        </div>
+      </div>
+    </nav>
+
+    {# Hero / header image (settings-driven) #}
+    {% set header = settings.get('header_image') if settings else None %}
+    <div class="hero-wrap position-relative mb-4">
+      <div class="hero mb-4" style="background-image: url('{{ url_for('static', filename='uploads/' ~ header) if header else '' }}');">
+        <div class="hero-overlay"></div>
+        <div class="container text-center text-white position-relative hero-inner">
+          <h1 class="display-5 fw-bold hero-title">{{ settings.get('site_title') if settings else 'Выбор Учителя Года' }}</h1>
+          <p class="lead hero-sub">{{ settings.get('banner_text') if settings else '' }}</p>
+          <div class="hero-cta mt-4"><a href="#candidates" class="btn btn-light btn-lg">Проголосовать</a></div>
+        </div>
+      </div>
+      <div class="hero-badge">2025</div>
+    </div>
+
+    <main class="container">
+      {# Toast container — flashed messages will be rendered here as Bootstrap toasts #}
+      <div id="toast-container" class="position-fixed top-0 end-0 p-3" style="z-index: 1200;">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            {% for category, message in messages %}
+              {% set cls = 'primary' %}
+              {% if category in ['success','danger','warning','info'] %}{% set cls = category %}{% endif %}
+              <div class="toast text-bg-{{ cls }}" role="alert" aria-live="assertive" aria-atomic="true" data-bs-delay="4200">
+                <div class="d-flex">
+                <div class="toast-body">{{ message }}</div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+                </div>
+              </div>
+            {% endfor %}
+          {% endif %}
+        {% endwith %}
+      </div>
+
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="text-center text-muted mt-4 mb-4">© 2025 Проект «Выбор Учителя Года» — Создатель: <strong>Birovol</strong></footer>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Confetti library -->
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <canvas id="confetti-canvas" class="confetti-canvas"></canvas>
+    <!-- side confetti triggers are automatic and visual cannons removed per preference -->
+    <script>
+      // Show festive modal on first visit
+      document.addEventListener('DOMContentLoaded', function(){
+        // Show the modal once per browser session (only on entry)
+        var showModal = !sessionStorage.getItem('seen2025');
+        if(showModal){
+          var modalHtml = `
+            <div class="modal fade" id="gradModal" tabindex="-1">
+              <div class="modal-dialog modal-fullscreen">
+                <div class="modal-content text-white" style="background: linear-gradient(135deg,#ff6b6b,#ffb3a7); border: none;">
+                  <div class="modal-body d-flex flex-column justify-content-center align-items-center" style="min-height:100vh;">
+                    <h1 style="font-size: clamp(28px, 6vw, 64px);">🎉 Выпускной 2025 🎓</h1>
+                    <p style="font-size: clamp(16px, 2.5vw, 22px); max-width: 900px; text-align:center;">Поздравляем наших выпускников! Присоединяйтесь к празднику и проголосуйте за лучшего учителя.</p>
+                    <div class="mt-4"><button type="button" class="btn btn-light btn-lg" data-bs-dismiss="modal">Продолжить</button></div>
+                  </div>
+                </div>
+              </div>
+            </div>`;
+          document.body.insertAdjacentHTML('beforeend', modalHtml);
+          var modalEl = new bootstrap.Modal(document.getElementById('gradModal'));
+          modalEl.show();
+          // mark shown for this session so it won't reappear when navigating within site
+          sessionStorage.setItem('seen2025', '1');
+            // fire confetti — smaller, prettier particles
+          var confettiFn = confetti || window.confetti;
+            confettiFn.create(document.getElementById('confetti-canvas'), { resize: true })({ particleCount: 120, spread: 140, origin: { y: 0.6 }, scalar: 0.6 });
+          // gentle second burst
+          setTimeout(function(){ confettiFn.create(document.getElementById('confetti-canvas'), { resize: true })({ particleCount: 80, spread: 110, origin: { y: 0.35 }, scalar: 0.55 }); }, 900);
+          // side confetti function (no visible cannons) — fired on modal open and success
+          function fireSideConfetti(){
+            try{
+              var fn = confetti || window.confetti;
+              fn({ particleCount: 80, angle: 110, spread: 50, origin: { x: 0.02, y: 0.5 }, scalar: 0.6 });
+              fn({ particleCount: 80, angle: 70, spread: 50, origin: { x: 0.98, y: 0.5 }, scalar: 0.6 });
+            }catch(e){}
+          }
+          // call side confetti when modal opens
+          fireSideConfetti();
+        }
+
+        // Celebration helpers: spawn balloons and provide a single entrypoint for celebrations
+        window.__celebrationEnabled = {{ 'false' if settings.get('disable_confetti','0') == '1' else 'true' }};
+        function spawnBalloon(opts){
+          if(!window.__celebrationEnabled) return;
+          try{
+            var colors = ['#ff6b6b','#ffd166','#7bd389','#7dd3fc','#c692ff'];
+            var c = colors[Math.floor(Math.random()*colors.length)];
+            var b = document.createElement('div'); b.className = 'balloon'; b.style.left = (10 + Math.random()*80) + '%'; b.style.background = 'radial-gradient(circle at 30% 30%, #fff6, ' + c + ')'; b.style.opacity = 1;
+            document.body.appendChild(b);
+            // animate upward with slight drift
+            requestAnimationFrame(function(){ b.style.transition = 'transform 2200ms cubic-bezier(.2,.9,.2,1), opacity 300ms linear'; b.style.transform = 'translateY(-380px)'; b.style.opacity = 1; });
+            setTimeout(function(){ try{ b.remove(); }catch(e){} }, 2600);
+          }catch(e){}
+        }
+
+        window.celebrate = function(){
+          if(!window.__celebrationEnabled) return;
+          try{ var fn = confetti || window.confetti; fn({ particleCount: 140, spread: 140, origin: { y: 0.55 } }); }catch(e){}
+          // spawn a few balloons
+          spawnBalloon(); setTimeout(spawnBalloon, 160); setTimeout(spawnBalloon, 360);
+        }
+
+        // IntersectionObserver for fade-in elements
+        var obs = new IntersectionObserver(function(entries){
+          entries.forEach(function(e){ if(e.isIntersecting){ e.target.classList.add('visible'); obs.unobserve(e.target); } });
+        }, { threshold: 0.12 });
+        document.querySelectorAll('.fade-in').forEach(function(el){ obs.observe(el); });
+
+        // Enable Bootstrap tooltips for helpful hints
+        var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+        tooltipTriggerList.forEach(function (el) { new bootstrap.Tooltip(el); });
+
+        // Initialize and show any server-rendered toasts
+        try{
+          var toastContainer = document.getElementById('toast-container');
+          if(toastContainer){
+            toastContainer.querySelectorAll('.toast').forEach(function(t){ var tb = new bootstrap.Toast(t); tb.show(); });
+          }
+        }catch(e){}
+
+        // Helper to show a toast programmatically: showToast(message, category)
+        window.showToast = function(message, category){
+          try{
+            var cls = 'primary';
+            if(['success','danger','warning','info'].indexOf(category) !== -1) cls = category;
+            var wrapper = document.getElementById('toast-container');
+            if(!wrapper){ wrapper = document.createElement('div'); wrapper.id = 'toast-container'; wrapper.className = 'position-fixed top-0 end-0 p-3'; wrapper.style.zIndex = '1200'; document.body.appendChild(wrapper); }
+            var toast = document.createElement('div'); toast.className = 'toast text-bg-' + cls; toast.setAttribute('role','alert'); toast.setAttribute('aria-live','assertive'); toast.setAttribute('aria-atomic','true'); toast.setAttribute('data-bs-delay','4200');
+            toast.innerHTML = `<div class="d-flex"><div class="toast-body">${message}</div><button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button></div>`;
+            wrapper.appendChild(toast);
+            var inst = new bootstrap.Toast(toast); inst.show();
+            toast.addEventListener('hidden.bs.toast', function(){ try{ toast.remove(); }catch(e){} });
+          }catch(e){ console.warn('Toast failed', e); }
+        }
+        // Re-init Bootstrap tooltips for newly added elements
+        window.initTooltips = function(){
+          try{ var list = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]')); list.forEach(function (el) { new bootstrap.Tooltip(el); }); }catch(e){}
+        }
+
+        // Image modal: click teacher photo to enlarge
+        var imgModalHtml = `
+          <div class="modal fade" id="imgModal" tabindex="-1">
+            <div class="modal-dialog modal-dialog-centered modal-lg">
+              <div class="modal-content">
+                <div class="modal-body text-center">
+                  <img id="imgModalImg" src="" alt="" style="max-width:100%; height:auto; border-radius:8px">
+                </div>
+              </div>
+            </div>
+          </div>`;
+        document.body.insertAdjacentHTML('beforeend', imgModalHtml);
+        var imgModal = new bootstrap.Modal(document.getElementById('imgModal'));
+        document.querySelectorAll('.teacher-photo').forEach(function(img){
+          img.style.cursor = 'pointer';
+          img.addEventListener('click', function(){
+            document.getElementById('imgModalImg').src = img.src;
+            imgModal.show();
+          });
+        });
+        // fire a little confetti if there is a success alert (e.g., after voting)
+        var successAlert = document.querySelector('.alert-success');
+        if(successAlert){
+          try{ confetti({ particleCount: 120, spread: 140, origin: { y: 0.4 } }); }catch(e){}
+          try{ fireSideConfetti(); }catch(e){}
+        }
+
+        // Theme toggle button: persist per-user choice via cookie endpoint
+        (function(){
+          var btn = document.getElementById('theme-toggle');
+          if(!btn) return;
+          function currentIsDark(){ return document.body.classList.contains('theme-dark'); }
+          function updateButton(){ btn.textContent = currentIsDark() ? '🌙' : '☀️'; }
+          btn.addEventListener('click', function(){
+            var newTheme = currentIsDark() ? 'light' : 'dark';
+            // optimistically update UI
+            document.body.classList.toggle('theme-dark');
+            updateButton();
+            // persist per-user via cookie
+            fetch('/user_theme', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ theme: newTheme }) })
+              .then(function(r){ if(!r.ok) throw new Error('network'); return r.json(); })
+              .catch(function(){ /* ignore failures */ });
+          });
+          updateButton();
+        })();
+
+        // Parallax and Ken Burns effect on hero
+        (function(){
+          const hero = document.querySelector('.hero');
+          if(!hero) return;
+          // slow zoom (Ken Burns)
+          hero.style.transition = 'transform 20s ease-out';
+          hero.style.transformOrigin = 'center center';
+          setTimeout(()=>{ hero.style.transform = 'scale(1.03) translateZ(0)'; }, 200);
+          // parallax on scroll (adjust background position)
+          window.addEventListener('scroll', function(){
+            const rect = hero.getBoundingClientRect();
+            const pos = Math.max(-200, Math.min(200, rect.top));
+            hero.style.backgroundPositionY = (pos * 0.15) + 'px';
+            // gently dim overlay when scrolled
+            const overlay = document.querySelector('.hero-overlay');
+            if(overlay) overlay.style.opacity = Math.min(0.8, 0.35 + Math.abs(rect.top)/1000);
+          });
+          // subtle animated gradient overlay
+          const overlay = document.querySelector('.hero-overlay');
+          if(overlay){ overlay.classList.add('animate-overlay'); }
+          // simple particle/sparkle effect: spawn occasional particles
+          const partRoot = document.createElement('div');
+          partRoot.className = 'hero-particles';
+          hero.appendChild(partRoot);
+          function spawnParticle(){
+            const p = document.createElement('div');
+            p.className = 'particle spark';
+            const size = 4 + Math.random()*8;
+            p.style.width = size+'px'; p.style.height = size+'px';
+            p.style.left = (10 + Math.random()*80) + '%';
+            p.style.top = (30 + Math.random()*50) + '%';
+            const color = ['#fff','#ffe082','#ff9aa2'][Math.floor(Math.random()*3)];
+            p.style.background = color; p.style.opacity = 0; partRoot.appendChild(p);
+            // animate via style changes
+            const dur = 2500 + Math.random()*2000;
+            p.animate([
+              { transform: 'translateY(0) scale(0.6)', opacity: 0 },
+              { transform: 'translateY(-60px) scale(1.0)', opacity: 1 },
+              { transform: 'translateY(-120px) scale(0.6)', opacity: 0 }
+            ], { duration: dur, easing: 'cubic-bezier(.2,.8,.2,1)' });
+            setTimeout(()=>{ try{ p.remove(); }catch(e){} }, dur+50);
+          }
+          // spawn periodically
+          setInterval(spawnParticle, 700);
+        })();
+
+        // Navbar scroll behavior: add/remove .scrolled to navbar for smooth transition
+        (function(){
+          var navbar = document.querySelector('.navbar');
+          if(!navbar) return;
+          var last = 0;
+          function onScroll(){
+            var y = window.scrollY || window.pageYOffset;
+            if(y > 24){ navbar.classList.add('scrolled'); }
+            else { navbar.classList.remove('scrolled'); }
+          }
+          // initial
+          onScroll();
+          window.addEventListener('scroll', function(){ window.requestAnimationFrame(onScroll); });
+          // also allow clicking preview toggle in admin preview (simulate scroll)
+          document.querySelectorAll('.navbar-sample').forEach(function(n){ n.addEventListener('click', function(){ n.classList.toggle('scrolled'); }); });
+        })();
+
+        // If the URL contains ?focus=candidate-<id> (or hash), perform smooth scroll and highlight
+        (function(){
+          // Expose smoothFocus globally and use IntersectionObserver to apply highlight only when
+          // the candidate is actually in view (prevents premature highlight and improves UX on slow devices)
+          window.smoothFocus = function(id){
+            try{
+              var el = document.getElementById(id);
+              if(!el) return false;
+              // cancel previous observer if any
+              if(window.__focusObserver){ try{ window.__focusObserver.disconnect(); }catch(e){} window.__focusObserver = null; }
+              // start smooth scroll
+              el.scrollIntoView({behavior:'smooth', block:'center'});
+              var applied = false;
+              // create observer with threshold so element is reasonably visible (>50%)
+              var obs = new IntersectionObserver(function(entries){
+                entries.forEach(function(entry){
+                  if(entry.target === el && entry.isIntersecting && entry.intersectionRatio > 0.5){
+                    if(applied) return;
+                    applied = true;
+                    try{ document.querySelectorAll('.list-group-item.focused').forEach(function(n){ n.classList.remove('focused'); }); }catch(e){}
+                    try{ el.classList.add('focused'); }catch(e){}
+                    try{ confetti({ particleCount: 100, spread: 120, origin: { y: 0.45 } }); }catch(e){}
+                    setTimeout(function(){ try{ el.classList.remove('focused'); }catch(e){} }, 3000);
+                    try{ obs.disconnect(); }catch(e){}
+                    window.__focusObserver = null;
+                  }
+                });
+              }, { threshold: [0.5] });
+              obs.observe(el);
+              window.__focusObserver = obs;
+              // fallback: if not visible within 900ms, apply highlight anyway
+              setTimeout(function(){ if(!applied){ applied = true; try{ document.querySelectorAll('.list-group-item.focused').forEach(function(n){ n.classList.remove('focused'); }); }catch(e){}; try{ el.classList.add('focused'); }catch(e){}; try{ confetti({ particleCount: 100, spread: 120, origin: { y: 0.45 } }); }catch(e){}; setTimeout(function(){ try{ el.classList.remove('focused'); }catch(e){} }, 3000); if(window.__focusObserver){ try{ window.__focusObserver.disconnect(); }catch(e){} window.__focusObserver = null; } } }, 900);
+              return true;
+            }catch(e){ return false; }
+          }
+          // Check query param first
+          var params = new URLSearchParams(window.location.search);
+          var focus = params.get('focus');
+          if(focus){
+            // wait a short moment for DOM to settle
+            setTimeout(function(){ if(smoothFocus(focus)){ params.delete('focus'); history.replaceState({}, '', window.location.pathname + (params.toString() ? '?' + params.toString() : '') + window.location.hash); } }, 160);
+          } else if(location.hash && location.hash.indexOf('#candidate-') === 0){
+            // handle hash fallback
+            var id = location.hash.slice(1);
+            setTimeout(function(){ smoothFocus(id); }, 160);
+          }
+        })();
+      });
+    </script>
+</body>
+</html>

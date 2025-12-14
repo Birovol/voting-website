@@ -1,0 +1,14 @@
+﻿{% extends "base.html" %}
+{% block content %}
+<h2> Вход в админку</h2>
+<form method="POST" autocomplete="off">
+    <!-- dummy fields to reduce browser autofill behavior -->
+    <input type="text" name="fakeusernameremembered" style="display:none">
+    <input type="password" name="fakepasswordremembered" style="display:none">
+    <p>
+        <label>{{ 'Логин' if not settings.get('language','ru') == 'en' else 'Username' }}: <input name="username" value="" autocomplete="username" required></label><br>
+        <label>{{ 'Пароль' if not settings.get('language','ru') == 'en' else 'Password' }}: <input name="password" type="password" autocomplete="new-password" value="" required></label>
+    </p>
+    <button type="submit" class="btn btn-admin">Войти</button>
+</form>
+{% endblock %}

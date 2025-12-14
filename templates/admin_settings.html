@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Настройки сайта</h2>
+<form method="POST" enctype="multipart/form-data">
+  <div class="mb-3">
+    <label class="form-label">Заголовок сайта</label>
+    <input name="site_title" class="form-control" value="{{ settings.get('site_title','') }}">
+  </div>
+  <div class="mb-3">
+    <label class="form-label">Язык сайта</label>
+    <select name="language" class="form-select">
+      <option value="ru" {% if settings.get('language','ru') == 'ru' %}selected{% endif %}>Русский</option>
+      <option value="en" {% if settings.get('language','ru') == 'en' %}selected{% endif %}>English</option>
+    </select>
+  </div>
+  <div class="mb-3">
+    <label class="form-label">Текст баннера</label>
+    <input name="banner_text" class="form-control" value="{{ settings.get('banner_text','') }}">
+  </div>
+  <div class="mb-3">
+    <label class="form-label">Основной цвет (hex)</label>
+    <div class="d-flex gap-2 align-items-center">
+      <input id="primary_color_picker" type="color" class="form-control form-control-color" value="{{ settings.get('primary_color','#0d6efd') }}" title="Выберите цвет">
+      <input id="primary_color_input" name="primary_color" class="form-control" value="{{ settings.get('primary_color','#0d6efd') }}">
+    </div>
+  </div>
+  <div class="mb-3">
+    <label class="form-label">Предпросмотр цвета</label>
+    <div style="height:40px; background: var(--primary); border-radius:6px"></div>
+  </div>
+  <script>
+    (function(){
+      const picker = document.getElementById('primary_color_picker');
+      const input = document.getElementById('primary_color_input');
+      // update color live
+      function applyColor(c){
+        if(!c) return;
+        // ensure starts with #
+        if(c[0] !== '#') c = '#'+c;
+        document.documentElement.style.setProperty('--primary', c);
+        // update picker/input if mismatched
+        if(picker.value.toLowerCase() !== c.toLowerCase()) picker.value = c;
+        if(input.value.toLowerCase() !== c.toLowerCase()) input.value = c;
+      }
+      picker.addEventListener('input', function(){ applyColor(this.value); });
+      input.addEventListener('input', function(){ applyColor(this.value); });
+      // initial apply
+      applyColor(input.value || picker.value);
+      // live navbar style preview
+      const styleSel = document.getElementById('navbar_style');
+      const preview = document.getElementById('preview-navbar');
+      function applyNavbarStyle(v){
+        if(!preview) return;
+        // replace classes on .navbar-sample
+        const nav = preview.querySelector('.navbar-sample');
+        if(!nav) return;
+        nav.classList.remove('navbar-style-transparent','navbar-style-semi','navbar-style-blur');
+        nav.classList.add('navbar-style-' + v);
+        // also apply to real navbar in the page for live preview
+        try{
+          const real = document.querySelector('.navbar');
+          if(real){ real.classList.remove('navbar-style-transparent','navbar-style-semi','navbar-style-blur'); real.classList.add('navbar-style-' + v); }
+        }catch(e){}
+      }
+      if(styleSel){
+        styleSel.addEventListener('change', function(){ applyNavbarStyle(this.value); });
+        // initial
+        applyNavbarStyle(styleSel.value || 'transparent');
+      }
+      // candidates opacity live preview
+      const candRange = document.getElementById('candidates_opacity');
+      const candVal = document.getElementById('candidates_opacity_val');
+      const candPreview = document.getElementById('preview-candidates');
+      function applyCandidatesOpacity(v){
+        if(!candPreview) return;
+        candPreview.style.background = 'rgba(255,255,255,' + v + ')';
+        if(candVal) candVal.textContent = Math.round(parseFloat(v) * 100) + '%';
+        // apply to the whole document so admin can preview on the real page
+        try{ document.documentElement.style.setProperty('--candidates-opacity', v); }catch(e){}
+      }
+      if(candRange){
+        candRange.addEventListener('input', function(){ applyCandidatesOpacity(this.value); });
+        applyCandidatesOpacity(candRange.value || '0.12');
+      }
+    })();
+  </script>
+  <div class="mb-3">
+    <label class="form-label">Изображение шапки сайта</label>
+    <input type="file" name="header_image" class="form-control">
+    {% if settings.get('header_image') %}
+      <div class="mt-2"><img src="{{ url_for('static', filename='uploads/' ~ settings.get('header_image')) }}" style="max-width:320px" alt="header"></div>
+    {% endif %}
+  </div>
+  <hr>
+  <div class="mb-3 form-check">
+    <input class="form-check-input" type="checkbox" name="use_background" id="use_background" {% if settings.get('use_background','0') == '1' %}checked{% endif %}>
+    <label class="form-check-label" for="use_background">Использовать фоновое изображение</label>
+  </div>
+  <div class="mb-3">
+    <label class="form-label">Фоновое изображение (опционально)</label>
+    <input type="file" name="background_image" class="form-control">
+    {% if settings.get('background_image') %}
+      <div class="mt-2"><img src="{{ url_for('static', filename='uploads/' ~ settings.get('background_image')) }}" style="max-width:320px" alt="background"></div>
+    {% endif %}
+  </div>
+  <div class="mb-3">
+    <label class="form-label">Тема сайта</label>
+    <select name="theme" class="form-select">
+      <option value="light" {% if settings.get('theme','light') == 'light' %}selected{% endif %}>Светлая</option>
+      <option value="dark" {% if settings.get('theme','light') == 'dark' %}selected{% endif %}>Тёмная</option>
+    </select>
+  </div>
+  <div class="mb-3">
+    <label class="form-label">Стиль верхней панели</label>
+    <select name="navbar_style" id="navbar_style" class="form-select">
+      <option value="transparent" {% if settings.get('navbar_style','transparent') == 'transparent' %}selected{% endif %}>Полная прозрачность</option>
+      <option value="semi" {% if settings.get('navbar_style','transparent') == 'semi' %}selected{% endif %}>Полупрозрачная</option>
+      <option value="blur" {% if settings.get('navbar_style','transparent') == 'blur' %}selected{% endif %}>Размытие (blur)</option>
+    </select>
+    <div class="form-text">Предпросмотр ниже обновляется мгновенно.</div>
+  </div>
+
+  <div class="mb-3">
+    <label class="form-label">Предпросмотр верхней панели</label>
+    <div id="preview-navbar" class="shadow-sm" style="border-radius:8px; overflow:hidden">
+      <nav class="navbar navbar-expand-lg navbar-sample navbar-style-{{ settings.get('navbar_style','transparent') }}">
+        <div class="container"><a class="navbar-brand" href="#">{{ settings.get('site_title','Учитель Года') }}</a><button class="btn btn-sm btn-outline-secondary" style="float:right">☀️</button></div>
+      </nav>
+    </div>
+  </div>
+  <div class="mb-3">
+    <label class="form-label">Прозрачность панели кандидатов</label>
+    <div class="d-flex align-items-center gap-3">
+      <input id="candidates_opacity" name="candidates_opacity" type="range" min="0.02" max="0.6" step="0.01" value="{{ settings.get('candidates_opacity','0.12') }}">
+      <div class="small text-muted" id="candidates_opacity_val">{{ (settings.get('candidates_opacity','0.12')|float * 100)|round(0) }}%</div>
+    </div>
+    <div class="form-text">Изменение видно в предпросмотре ниже.</div>
+  </div>
+  <div class="mb-3">
+    <label class="form-label">Предпросмотр панели кандидатов</label>
+    <div id="preview-candidates" style="padding:12px; border-radius:8px; background: rgba(255,255,255,{{ settings.get('candidates_opacity','0.12') }});">
+      <div style="height:64px; display:flex; align-items:center; gap:12px; padding:8px">
+        <div style="width:48px;height:48px;border-radius:8px;background:#eee"></div>
+        <div style="flex:1"><div style="height:12px;background:#eee;width:60%;border-radius:6px;margin-bottom:6px"></div><div style="height:10px;background:#eee;width:30%;border-radius:6px"></div></div>
+      </div>
+    </div>
+  </div>
+  <button class="btn btn-primary">Сохранить</button>
+</form>
+{% endblock %}

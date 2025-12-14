@@ -1,0 +1,56 @@
+﻿{% extends "base.html" %}
+{% block content %}
+<h2> Админ-панель</h2>
+
+<div class="row">
+    <div class="col-md-5">
+        <h3>Добавить учителя</h3>
+        <form method="POST" action="{{ url_for('admin_add') }}" enctype="multipart/form-data">
+            <div class="mb-3">
+                <label class="form-label">ФИО</label>
+                <input class="form-control" name="name" required>
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Предмет</label>
+                <input class="form-control" name="subject">
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Описание</label>
+                <textarea class="form-control" name="description" rows="3"></textarea>
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Фото (jpg, png, gif)</label>
+                <input class="form-control" type="file" name="photo" accept="image/*">
+            </div>
+            <button type="submit" class="btn btn-primary">Добавить</button>
+        </form>
+    </div>
+    <div class="col-md-7">
+        <div class="d-flex justify-content-between align-items-center">
+            <h3 class="mb-0">Список учителей</h3>
+            <a href="{{ url_for('admin_settings') }}" class="btn btn-sm btn-outline-primary">Настройки сайта</a>
+        </div>
+
+<h3>Список учителей</h3>
+        {% if teachers %}
+            <ul class="list-group">
+            {% for t in teachers %}
+                <li class="list-group-item d-flex justify-content-between align-items-center">
+                    <div>
+                        <strong>{{ t.name }}</strong><br>
+                        <small class="text-muted">{{ t.subject or '' }}</small>
+                    </div>
+                    <div class="text-end">
+                        <div class="mb-2">Голосов: <strong>{{ t.votes }}</strong></div>
+                            <a href="{{ url_for('admin_edit', teacher_id=t.id) }}" class="btn btn-sm btn-outline-secondary me-1">Редактировать</a>
+                            <a href="{{ url_for('admin_delete', teacher_id=t.id) }}" class="btn btn-sm btn-danger" onclick="return confirm('Удалить {{ t.name }}? Это безвозвратно.')">Удалить</a>
+                    </div>
+                </li>
+            {% endfor %}
+            </ul>
+        {% else %}
+            <div class="alert alert-secondary">Нет учителей.</div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

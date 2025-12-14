@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Редактировать учителя</h2>
+<form method="POST" enctype="multipart/form-data">
+  <div class="mb-3">
+    <label class="form-label">ФИО</label>
+    <input name="name" class="form-control" required value="{{ t.name }}">
+  </div>
+  <div class="mb-3">
+    <label class="form-label">Предмет</label>
+    <input name="subject" class="form-control" value="{{ t.subject }}">
+  </div>
+  <div class="mb-3">
+    <label class="form-label">Описание</label>
+    <textarea name="description" class="form-control" rows="4">{{ t.description }}</textarea>
+  </div>
+  <div class="mb-3">
+    <label class="form-label">Фото</label>
+    <input type="file" name="photo" class="form-control">
+    {% if t.photo %}
+      <div class="mt-2"><img src="{{ url_for('static', filename='uploads/' ~ t.photo) }}" style="max-width:320px" alt="photo"></div>
+    {% endif %}
+  </div>
+  <button class="btn btn-primary">Сохранить</button>
+  <a class="btn btn-secondary ms-2" href="{{ url_for('admin_panel') }}">Отмена</a>
+</form>
+{% endblock %}
