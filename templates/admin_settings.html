@@ -1,5 +1,16 @@
 {% extends "base.html" %}
 {% block content %}
+<style>
+    body { color: #000 !important; }
+    .text-muted { color: #666 !important; }
+    .card { background: #fff !important; color: #000 !important; }
+    .list-group-item { background: #fff !important; color: #000 !important; }
+    .alert { color: #000 !important; }
+    .btn { color: #000 !important; }
+    .form-control { color: #000 !important; background: #fff !important; border-color: #ccc !important; }
+    .navbar { background: #fff !important; color: #000 !important; }
+    .navbar .navbar-brand, .navbar .nav-link { color: #000 !important; }
+</style>
 <h2>Настройки сайта</h2>
 <form method="POST" enctype="multipart/form-data">
   <div class="mb-3">
@@ -82,6 +93,19 @@
         candRange.addEventListener('input', function(){ applyCandidatesOpacity(this.value); });
         applyCandidatesOpacity(candRange.value || '0.12');
       }
+      // text brightness live preview
+      const textRange = document.getElementById('text_brightness');
+      const textVal = document.getElementById('text_brightness_val');
+      function applyTextBrightness(v){
+        if(!textVal) return;
+        textVal.textContent = Math.round(parseFloat(v) * 100) + '%';
+        // apply to the whole document so admin can preview on the real page
+        try{ document.documentElement.style.setProperty('--text-brightness', v); }catch(e){}
+      }
+      if(textRange){
+        textRange.addEventListener('input', function(){ applyTextBrightness(this.value); });
+        applyTextBrightness(textRange.value || '0.8');
+      }
     })();
   </script>
   <div class="mb-3">
@@ -103,13 +127,7 @@
       <div class="mt-2"><img src="{{ url_for('static', filename='uploads/' ~ settings.get('background_image')) }}" style="max-width:320px" alt="background"></div>
     {% endif %}
   </div>
-  <div class="mb-3">
-    <label class="form-label">Тема сайта</label>
-    <select name="theme" class="form-select">
-      <option value="light" {% if settings.get('theme','light') == 'light' %}selected{% endif %}>Светлая</option>
-      <option value="dark" {% if settings.get('theme','light') == 'dark' %}selected{% endif %}>Тёмная</option>
-    </select>
-  </div>
+
   <div class="mb-3">
     <label class="form-label">Стиль верхней панели</label>
     <select name="navbar_style" id="navbar_style" class="form-select">
@@ -124,7 +142,7 @@
     <label class="form-label">Предпросмотр верхней панели</label>
     <div id="preview-navbar" class="shadow-sm" style="border-radius:8px; overflow:hidden">
       <nav class="navbar navbar-expand-lg navbar-sample navbar-style-{{ settings.get('navbar_style','transparent') }}">
-        <div class="container"><a class="navbar-brand" href="#">{{ settings.get('site_title','Учитель Года') }}</a><button class="btn btn-sm btn-outline-secondary" style="float:right">☀️</button></div>
+        <div class="container"><a class="navbar-brand" href="#">{{ settings.get('site_title','Оскар 2025') }}</a><button class="btn btn-sm btn-outline-secondary" style="float:right">☀️</button></div>
       </nav>
     </div>
   </div>
@@ -137,7 +155,7 @@
     <div class="form-text">Изменение видно в предпросмотре ниже.</div>
   </div>
   <div class="mb-3">
-    <label class="form-label">Предпросмотр панели кандидатов</label>
+    <label class="form-label">Предпросмотр панели номинантов</label>
     <div id="preview-candidates" style="padding:12px; border-radius:8px; background: rgba(255,255,255,{{ settings.get('candidates_opacity','0.12') }});">
       <div style="height:64px; display:flex; align-items:center; gap:12px; padding:8px">
         <div style="width:48px;height:48px;border-radius:8px;background:#eee"></div>

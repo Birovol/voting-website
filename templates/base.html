@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <title>{% block title %}Выбор Учителя Года{% endblock %}</title>
+    <title>{% block title %}Оскар 2025{% endblock %}</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -10,54 +10,214 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
     <link href="{{ url_for('static', filename='styles.css') }}" rel="stylesheet">
     <style>
-      /* CSS variables control site colors so theme toggling updates text/background consistently */
+      /* CSS variables control site colors */
       :root {
         --primary: {{ settings.get('primary_color','#0d6efd') if settings else '#0d6efd' }};
+        --primary-light: {{ settings.get('primary_color','#0d6efd') if settings else '#0d6efd' }}88;
         --candidates-opacity: {{ settings.get('candidates_opacity','0.12') }};
-        --bg: #ffffff;
-        --surface: rgba(255,255,255,0.94);
-        --text: #10203a;
-        --muted: #6c757d;
+        --text-brightness: {{ settings.get('text_brightness','0.8') }};
+        --bg: #0a0f1a;
+        --surface: rgba(16, 20, 31, 0.85);
+        --text: rgba(231,238,248, var(--text-brightness));
+        --muted: rgba(231,238,248, calc(var(--text-brightness) * 0.64));
+        --transition: all 0.3s ease-in-out;
+        --shadow-sm: 0 2px 8px rgba(0,0,0,0.3);
+        --shadow: 0 4px 12px rgba(0,0,0,0.4);
+        --shadow-lg: 0 8px 24px rgba(0,0,0,0.5);
+        --border-radius: 12px;
       }
-      /* Dark theme overrides - applied when <body class="theme-dark"> */
-      body.theme-dark {
-        --bg: #07101a;
-        --surface: rgba(8,10,14,0.72);
-        --text: #e7eef8;
-        --muted: rgba(231,238,248,0.64);
+      /* Enhanced styling */
+      .grad-banner { 
+        background: linear-gradient(45deg, var(--primary), #6c5ce7); 
+        color: #fff; 
+        padding: 1.5rem; 
+        border-radius: var(--border-radius); 
+        text-align: center;
+        box-shadow: var(--shadow);
+        transition: var(--transition);
+        border: none;
       }
-      /* Festive modal styling */
-      .grad-banner { background: linear-gradient(45deg,#ff6b6b,#ffd166); color:#fff; padding:1.5rem; border-radius:0.6rem; text-align:center }
-      .confetti-canvas { position: fixed; pointer-events: none; left:0; top:0; width:100%; height:100%; z-index:1050 }
-      /* larger teacher photos (user requested bigger) */
-      .teacher-photo { width: 540px; height: 540px; object-fit: cover; border-radius: 12px; }
-      @media (max-width: 992px) { .teacher-photo { width: 320px; height: 320px } }
-      @media (max-width: 576px) { .teacher-photo { width: 140px; height: 140px } }
-      /* small decorative round badge in hero */
-      .hero-badge { position: absolute; right: 2rem; top: 2rem; width:72px; height:72px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:700; color:white; background: linear-gradient(45deg,#ffd166,#ff6b6b); box-shadow: 0 8px 18px rgba(0,0,0,0.12) }
-      @media (max-width: 576px) { .teacher-photo { width:64px; height:64px } }
-      .fade-in { opacity: 0; transform: translateY(20px); transition: opacity 700ms ease, transform 700ms ease; }
-      .fade-in.visible { opacity: 1; transform: translateY(0); }
-      /* override bootstrap primary color with site setting */
-      .bg-primary, .btn-primary { background-color: var(--primary) !important; border-color: var(--primary) !important; }
-      .navbar-dark .navbar-brand, .navbar-dark .navbar-nav .nav-link { color: var(--text) !important; }
+      .grad-banner:hover {
+        transform: translateY(-2px);
+        box-shadow: var(--shadow-lg);
+      }
+      .confetti-canvas { 
+        position: fixed; 
+        pointer-events: none; 
+        left: 0; 
+        top: 0; 
+        width: 100%; 
+        height: 100%; 
+        z-index: 1050;
+      }
+      /* Enhanced nominee photos with hover effect */
+      .nominee-photo { 
+        width: 100%; 
+        height: 400px; 
+        object-fit: cover; 
+        border-radius: var(--border-radius);
+        transition: var(--transition);
+        box-shadow: var(--shadow);
+      }
+      .nominee-photo:hover {
+        transform: translateY(-5px) scale(1.02);
+        box-shadow: var(--shadow-lg);
+      }
+      @media (max-width: 1200px) { 
+        .nominee-photo { 
+          height: 350px;
+        } 
+      }
+      @media (max-width: 992px) { 
+        .nominee-photo { 
+          height: 300px;
+          max-width: 100%;
+        } 
+      }
+      @media (max-width: 768px) { 
+        .nominee-photo { 
+          height: 250px;
+        } 
+      }
+      @media (max-width: 576px) { 
+        .nominee-photo { 
+          height: 200px;
+          margin-bottom: 1rem;
+        } 
+      }
+      /* Enhanced hero badge with animation */
+      .hero-badge { 
+        position: absolute; 
+        right: 2rem; 
+        top: 2rem; 
+        width: 80px; 
+        height: 80px; 
+        border-radius: 50%; 
+        display: flex; 
+        align-items: center; 
+        justify-content: center; 
+        font-weight: 800; 
+        font-size: 1.5rem;
+        color: white; 
+        background: linear-gradient(135deg, var(--primary), #6c5ce7);
+        box-shadow: var(--shadow-lg);
+        transition: var(--transition);
+        animation: pulse 2s infinite;
+        z-index: 10;
+      }
+      .hero-badge:hover {
+        transform: scale(1.1) rotate(10deg);
+        animation: none;
+      }
+      @keyframes pulse {
+        0% { transform: scale(1); }
+        50% { transform: scale(1.05); }
+        100% { transform: scale(1); }
+      }
+      
+      /* Enhanced fade-in animations */
+      .fade-in { 
+        opacity: 0; 
+        transform: translateY(30px); 
+        transition: opacity 0.8s cubic-bezier(0.4, 0, 0.2, 1), 
+                    transform 0.8s cubic-bezier(0.4, 0, 0.2, 1); 
+      }
+      .fade-in.visible { 
+        opacity: 1; 
+        transform: translateY(0); 
+      }
+      
+      /* Staggered animation delay */
+      .fade-in.delay-1 { transition-delay: 0.1s; }
+      .fade-in.delay-2 { transition-delay: 0.2s; }
+      .fade-in.delay-3 { transition-delay: 0.3s; }
+      .fade-in.delay-4 { transition-delay: 0.4s; }
+      /* Enhanced buttons and interactive elements */
+      .bg-primary, .btn-primary { 
+        background-color: var(--primary) !important; 
+        border-color: var(--primary) !important; 
+        transition: var(--transition);
+        position: relative;
+        overflow: hidden;
+      }
+      .btn-primary:hover, .btn-primary:focus {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px var(--primary-light);
+      }
+      .btn-primary:active {
+        transform: translateY(0);
+      }
+      .btn {
+        border-radius: 50px;
+        padding: 0.5rem 1.5rem;
+        font-weight: 600;
+        letter-spacing: 0.5px;
+        text-transform: uppercase;
+        font-size: 0.85rem;
+      }
+      
+      /* Enhanced navbar */
+      .navbar {
+        padding: 1rem 0;
+        transition: var(--transition);
+        background: var(--surface) !important;
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        box-shadow: var(--shadow-sm);
+      }
+      .navbar.scrolled {
+        padding: 0.5rem 0;
+        background: var(--surface) !important;
+      }
+      .navbar-brand {
+        font-weight: 800;
+        font-size: 1.5rem;
+        background: linear-gradient(45deg, var(--primary), #6c5ce7);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        transition: var(--transition);
+      }
+      .navbar-dark .navbar-brand, 
+      .navbar-dark .navbar-nav .nav-link { 
+        color: var(--text) !important; 
+        position: relative;
+        padding: 0.5rem 1rem;
+        margin: 0 0.25rem;
+        transition: var(--transition);
+      }
+      .navbar-dark .nav-link:after {
+        content: '';
+        position: absolute;
+        width: 0;
+        height: 2px;
+        bottom: 0;
+        left: 50%;
+        background: var(--primary);
+        transition: var(--transition);
+        transform: translateX(-50%);
+      }
+      .navbar-dark .nav-link:hover:after,
+      .navbar-dark .nav-link.active:after {
+        width: 70%;
+      }
+
+      /* Background transparency for main content when background image is used */
+      .bg-transparent {
+        background: transparent !important;
+      }
     </style>
-  </style>
 </head>
 {# Apply theme class if set in settings (inject_settings may prefer cookie) #}
 <body class="{% if settings.get('theme') == 'dark' %}theme-dark{% endif %}" style="{% if settings.get('use_background','0') == '1' and (settings.get('background_image') or settings.get('header_image')) %}background-image: url('{{ url_for('static', filename='uploads/' ~ (settings.get('background_image') or settings.get('header_image')) ) }}'); background-size: cover; background-position: center; background-attachment: fixed;{% endif %}">
     <nav class="navbar navbar-expand-lg navbar-dark navbar-style-{{ settings.get('navbar_style','transparent') }} mb-4">
       <div class="container">
-        <a class="navbar-brand" href="/">Учитель Года</a>
+        <a class="navbar-brand" href="/">Оскар 2025</a>
         <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#mainNav" aria-controls="mainNav" aria-expanded="false" aria-label="Toggle navigation">
           <span class="navbar-toggler-icon"></span>
         </button>
         <div class="collapse navbar-collapse" id="mainNav">
           <ul class="navbar-nav ms-auto">
             <li class="nav-item"><a class="nav-link" href="{{ url_for('index') }}">{{ tr('home') }}</a></li>
-            <li class="nav-item d-flex align-items-center me-2">
-              <button id="theme-toggle" class="btn btn-outline-light btn-sm" data-bs-toggle="tooltip" title="Переключить тему">{% if settings.get('theme') == 'dark' %}🌙{% else %}☀️{% endif %}</button>
-            </li>
             {% if session.admin_logged_in %}
               <li class="nav-item"><a class="nav-link" href="{{ url_for('admin_panel') }}">{{ tr('admin') }}</a></li>
               <li class="nav-item"><a class="nav-link" href="{{ url_for('admin_logout') }}">{{ tr('logout') }}</a></li>
@@ -75,15 +235,19 @@
       <div class="hero mb-4" style="background-image: url('{{ url_for('static', filename='uploads/' ~ header) if header else '' }}');">
         <div class="hero-overlay"></div>
         <div class="container text-center text-dark position-relative hero-inner">
-          <h1 class="display-5 fw-bold hero-title">{{ settings.get('site_title') if settings else 'Выбор Учителя Года' }}</h1>
+          <h1 class="display-5 fw-bold hero-title">{{ settings.get('site_title') if settings else 'Оскар 2025' }}</h1>
           <p class="lead hero-sub">{{ settings.get('banner_text') if settings else '' }}</p>
-          <div class="hero-cta mt-4"><a href="#candidates" class="btn btn-light btn-lg"style="color: #000 !important;">Проголосовать</a></div>
+          <div class="hero-cta mt-4"><a href="{{ url_for('index') }}" class="btn btn-light btn-lg"style="color: #000 !important;">Просмотреть номинации</a></div>
         </div>
       </div>
       <div class="hero-badge">2025</div>
     </div>
 
-    <main class="container">
+    {% set container_class = 'container' %}
+    {% if settings.get('use_background','0') == '1' and (settings.get('background_image') or settings.get('header_image')) %}
+      {% set container_class = container_class + ' bg-transparent' %}
+    {% endif %}
+    <main class="{{ container_class }}">
       {# Toast container — flashed messages will be rendered here as Bootstrap toasts #}
       <div id="toast-container" class="position-fixed top-0 end-0 p-3" style="z-index: 1200;">
         {% with messages = get_flashed_messages(with_categories=true) %}
@@ -105,7 +269,20 @@
         {% block content %}{% endblock %}
     </main>
 
-    <footer class="text-center text-muted mt-4 mb-4">© 2025 Проект «Выбор Учителя Года» — Создатель: <strong>Birovol</strong></footer>
+    <footer class="footer mt-5 py-4" style="background: transparent; color: white;">
+      <div class="container">
+        <div class="row">
+          <div class="col-12 text-center">
+            <p class="mb-0">© 2025 Проект «Оскар 2025» — Создатель: <strong>Birovol</strong></p>
+            <div class="mt-2">
+              <a href="#" class="text-white me-3"><i class="bi bi-github"></i> GitHub</a>
+              <a href="#" class="text-white me-3"><i class="bi bi-envelope"></i> Контакты</a>
+              <a href="#" class="text-white"><i class="bi bi-info-circle"></i> О проекте</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </footer>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
     <!-- Confetti library -->
     <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
@@ -237,24 +414,7 @@
           try{ fireSideConfetti(); }catch(e){}
         }
 
-        // Theme toggle button: persist per-user choice via cookie endpoint
-        (function(){
-          var btn = document.getElementById('theme-toggle');
-          if(!btn) return;
-          function currentIsDark(){ return document.body.classList.contains('theme-dark'); }
-          function updateButton(){ btn.textContent = currentIsDark() ? '🌙' : '☀️'; }
-          btn.addEventListener('click', function(){
-            var newTheme = currentIsDark() ? 'light' : 'dark';
-            // optimistically update UI
-            document.body.classList.toggle('theme-dark');
-            updateButton();
-            // persist per-user via cookie
-            fetch('/user_theme', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ theme: newTheme }) })
-              .then(function(r){ if(!r.ok) throw new Error('network'); return r.json(); })
-              .catch(function(){ /* ignore failures */ });
-          });
-          updateButton();
-        })();
+
 
         // Parallax and Ken Burns effect on hero
         (function(){

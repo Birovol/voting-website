@@ -1,24 +1,35 @@
 {% extends "base.html" %}
 {% block content %}
-<h2>Редактировать учителя</h2>
+<style>
+    body { color: #000 !important; }
+    .text-muted { color: #666 !important; }
+    .card { background: #fff !important; color: #000 !important; }
+    .list-group-item { background: #fff !important; color: #000 !important; }
+    .alert { color: #000 !important; }
+    .btn { color: #000 !important; }
+    .form-control { color: #000 !important; background: #fff !important; border-color: #ccc !important; }
+    .navbar { background: #fff !important; color: #000 !important; }
+    .navbar .navbar-brand, .navbar .nav-link { color: #000 !important; }
+</style>
+<h2>Редактировать номинанта</h2>
 <form method="POST" enctype="multipart/form-data">
   <div class="mb-3">
-    <label class="form-label">ФИО</label>
-    <input name="name" class="form-control" required value="{{ t.name }}">
+    <label class="form-label">Имя/Название</label>
+    <input name="name" class="form-control" required value="{{ nominee.name }}">
   </div>
   <div class="mb-3">
-    <label class="form-label">Предмет</label>
-    <input name="subject" class="form-control" value="{{ t.subject }}">
+    <label class="form-label">Категория/Фильм</label>
+    <input name="category" class="form-control" value="{{ nominee.category }}">
   </div>
   <div class="mb-3">
     <label class="form-label">Описание</label>
-    <textarea name="description" class="form-control" rows="4">{{ t.description }}</textarea>
+    <textarea name="description" class="form-control" rows="4">{{ nominee.description }}</textarea>
   </div>
   <div class="mb-3">
     <label class="form-label">Фото</label>
     <input type="file" name="photo" class="form-control">
-    {% if t.photo %}
-      <div class="mt-2"><img src="{{ url_for('static', filename='uploads/' ~ t.photo) }}" style="max-width:320px" alt="photo"></div>
+    {% if nominee.photo %}
+      <div class="mt-2"><img src="{{ url_for('static', filename='uploads/' ~ nominee.photo) }}" style="max-width:320px" alt="photo"></div>
     {% endif %}
   </div>
   <button class="btn btn-primary">Сохранить</button>

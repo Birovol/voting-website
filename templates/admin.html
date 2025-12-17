@@ -1,55 +1,106 @@
 ﻿{% extends "base.html" %}
 {% block content %}
+<style>
+    body { color: #000 !important; }
+    .text-muted { color: #666 !important; }
+    .card { background: #fff !important; color: #000 !important; }
+    .list-group-item { background: #fff !important; color: #000 !important; }
+    .alert { color: #000 !important; }
+    .btn { color: #000 !important; }
+    .form-control { color: #000 !important; background: #fff !important; border-color: #ccc !important; }
+    .navbar { background: #fff !important; color: #000 !important; }
+    .navbar .navbar-brand, .navbar .nav-link { color: #000 !important; }
+</style>
 <h2> Админ-панель</h2>
 
 <div class="row">
     <div class="col-md-5">
-        <h3>Добавить учителя</h3>
-        <form method="POST" action="{{ url_for('admin_add') }}" enctype="multipart/form-data">
+        <h3>Добавить номинацию</h3>
+        <form method="POST" action="{{ url_for('admin_add_nomination') }}" enctype="multipart/form-data">
             <div class="mb-3">
-                <label class="form-label">ФИО</label>
+                <label class="form-label">Название номинации</label>
                 <input class="form-control" name="name" required>
             </div>
             <div class="mb-3">
-                <label class="form-label">Предмет</label>
-                <input class="form-control" name="subject">
+                <label class="form-label">Описание</label>
+                <textarea class="form-control" name="description" rows="3"></textarea>
+            </div>
+            <button type="submit" class="btn btn-primary">Добавить номинацию</button>
+        </form>
+
+        <h3 class="mt-4">Добавить номинанта</h3>
+        <form method="POST" action="{{ url_for('admin_add') }}" enctype="multipart/form-data">
+            <div class="mb-3">
+                <label class="form-label">Имя/Название</label>
+                <input class="form-control" name="name" required>
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Категория/Фильм</label>
+                <input class="form-control" name="category">
             </div>
             <div class="mb-3">
                 <label class="form-label">Описание</label>
                 <textarea class="form-control" name="description" rows="3"></textarea>
             </div>
             <div class="mb-3">
+                <label class="form-label">Номинация</label>
+                <select class="form-control" name="nomination_id" required>
+                    {% for nom in nominations %}
+                        <option value="{{ nom.id }}">{{ nom.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="mb-3">
                 <label class="form-label">Фото (jpg, png, gif)</label>
                 <input class="form-control" type="file" name="photo" accept="image/*">
             </div>
-            <button type="submit" class="btn btn-primary">Добавить</button>
+            <button type="submit" class="btn btn-primary">Добавить номинанта</button>
         </form>
     </div>
     <div class="col-md-7">
         <div class="d-flex justify-content-between align-items-center">
-            <h3 class="mb-0">Список учителей</h3>
+            <h3 class="mb-0">Список номинаций</h3>
             <a href="{{ url_for('admin_settings') }}" class="btn btn-sm btn-outline-primary">Настройки сайта</a>
         </div>
 
-<h3>Список учителей</h3>
-        {% if teachers %}
-            <ul class="list-group">
-            {% for t in teachers %}
-                <li class="list-group-item d-flex justify-content-between align-items-center">
-                    <div>
-                        <strong>{{ t.name }}</strong><br>
-                        <small class="text-muted">{{ t.subject or '' }}</small>
+        {% if nominations %}
+            {% for nomination in nominations %}
+                <div class="card mb-3">
+                    <div class="card-header">
+                        <strong>{{ nomination.name }}</strong>
+                        <a href="{{ url_for('admin_delete_nomination', nomination_id=nomination.id) }}" class="btn btn-sm btn-danger float-end" onclick="return confirm('Удалить номинацию {{ nomination.name }} и всех номинантов в ней? Это безвозвратно.')">Удалить</a>
                     </div>
-                    <div class="text-end">
-                        <div class="mb-2">Голосов: <strong>{{ t.votes }}</strong></div>
-                            <a href="{{ url_for('admin_edit', teacher_id=t.id) }}" class="btn btn-sm btn-outline-secondary me-1">Редактировать</a>
-                            <a href="{{ url_for('admin_delete', teacher_id=t.id) }}" class="btn btn-sm btn-danger" onclick="return confirm('Удалить {{ t.name }}? Это безвозвратно.')">Удалить</a>
+                    <div class="card-body">
+                        <p class="card-text">{{ nomination.description or '' }}</p>
+                        <h5 class="mt-3">Номинанты:</h5>
+                        {% set nomi_nominees = [] %}
+                        {% for nominee in nominees if nominee.nomination_id == nomination.id %}
+                            {% if nomi_nominees.append(nominee) %}{% endif %}
+                        {% endfor %}
+                        {% if nomi_nominees %}
+                            <ul class="list-group">
+                            {% for nominee in nomi_nominees %}
+                                <li class="list-group-item d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <strong>{{ nominee.name }}</strong><br>
+                                        <small class="text-muted">{{ nominee.category or '' }}</small>
+                                    </div>
+                                    <div class="text-end">
+                                        <div class="mb-2">Голосов: <strong>{{ nominee.votes }}</strong></div>
+                                        <a href="{{ url_for('admin_edit', nominee_id=nominee.id) }}" class="btn btn-sm btn-outline-secondary me-1">Редактировать</a>
+                                        <a href="{{ url_for('admin_delete', nominee_id=nominee.id) }}" class="btn btn-sm btn-danger" onclick="return confirm('Удалить {{ nominee.name }}? Это безвозвратно.')">Удалить</a>
+                                    </div>
+                                </li>
+                            {% endfor %}
+                            </ul>
+                        {% else %}
+                            <p class="text-muted">В этой номинации пока нет номинантов.</p>
+                        {% endif %}
                     </div>
-                </li>
+                </div>
             {% endfor %}
-            </ul>
         {% else %}
-            <div class="alert alert-secondary">Нет учителей.</div>
+            <div class="alert alert-secondary">Нет номинаций.</div>
         {% endif %}
     </div>
 </div>

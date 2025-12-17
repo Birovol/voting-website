@@ -3,115 +3,218 @@ import sqlite3
 import os
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
+from functools import wraps
 import secrets
 from PIL import Image
-import sqlite3
+from io import BytesIO
+from datetime import datetime, timedelta
+import logging
+import time
+import random
 
-# Настройки
-ADMIN_USERNAME = "admin"
-ADMIN_PASSWORD_HASH = generate_password_hash("secret")
+# Настройка логирования
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
+# Настройка логирования голосований в файл
+vote_logger = logging.getLogger('votes')
+vote_logger.setLevel(logging.INFO)
+vote_handler = logging.FileHandler('votes.log')
+vote_formatter = logging.Formatter('%(asctime)s - %(message)s')
+vote_handler.setFormatter(vote_formatter)
+vote_logger.addHandler(vote_handler)
+
+# Настройки приложения
 app = Flask(__name__)
-app.secret_key = os.urandom(24)
+app.secret_key = os.environ.get('FLASK_SECRET_KEY', os.urandom(24).hex())
 app.config["DATABASE"] = os.path.join(app.instance_path, "site.db")
-# No MAX_CONTENT_LENGTH set (uploads unrestricted). Images will still be resized on upload.
+app.config['MAX_CONTENT_LENGTH'] = 8 * 1024 * 1024  # Ограничение загрузки 8MB
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=1)  # Время жизни сессии
+
+# Загрузка конфигурации из переменных окружения
+ADMIN_USERNAME = os.environ.get('ADMIN_USERNAME', 'admin')
+ADMIN_PASSWORD_HASH = os.environ.get('ADMIN_PASSWORD_HASH', generate_password_hash('admin'))
+# По умолчанию логин: admin, пароль: admin
+
+# Допустимые расширения файлов
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
 UPLOAD_FOLDER = os.path.join(app.static_folder or 'static', 'uploads')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-
 os.makedirs(app.instance_path, exist_ok=True)
 
 def get_db():
-    conn = sqlite3.connect(app.config["DATABASE"])
-    conn.row_factory = sqlite3.Row
-    return conn
+    """Создает и возвращает соединение с базой данных"""
+    try:
+        conn = sqlite3.connect(app.config["DATABASE"])
+        conn.row_factory = sqlite3.Row
+        # Включение внешних ключей для SQLite
+        conn.execute("PRAGMA foreign_keys = ON")
+        return conn
+    except sqlite3.Error as e:
+        logger.error(f"Ошибка подключения к базе данных: {e}")
+        raise
 
 def init_db():
+    """Инициализация базы данных и создание таблиц, если они не существуют"""
     with get_db() as db:
-        db.execute("""
-            CREATE TABLE IF NOT EXISTS teachers (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL,
-                subject TEXT,
-                description TEXT,
-                votes INTEGER DEFAULT 0
+            # Включение журналирования WAL для лучшей производительности
+            db.execute("PRAGMA journal_mode=WAL")
+            
+            # Создаем таблицу номинаций
+            db.execute("""
+                CREATE TABLE IF NOT EXISTS nominations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL UNIQUE,
+                    description TEXT,
+                    statistics TEXT DEFAULT '{}',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            # Add statistics column if it doesn't exist (for existing databases)
+            try:
+                db.execute("ALTER TABLE nominations ADD COLUMN statistics TEXT DEFAULT '{}'")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
+            # Создаем таблицу участников (номинантов)
+            db.execute("""
+                CREATE TABLE IF NOT EXISTS nominees (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    category TEXT,
+                    description TEXT,
+                    photo TEXT,
+                    nomination_id INTEGER,
+                    votes INTEGER DEFAULT 0,
+                    FOREIGN KEY (nomination_id) REFERENCES nominations (id)
+                )
+            """)
+            # Seed some sample nominations if table is empty
+            cur = db.execute("SELECT COUNT(1) as cnt FROM nominations")
+            cnt = cur.fetchone()[0]
+            if cnt == 0:
+                # Добавляем стандартные номинации Оскара
+                db.executemany(
+                    "INSERT INTO nominations (name, description) VALUES (?, ?)",
+                    [
+                        ("Лучший фильм", "Самый лучший фильм года по версии Американской киноакадемии"),
+                        ("Лучший актер", "Лучшая мужская роль в главной роли"),
+                        ("Лучшая актриса", "Лучшая женская роль в главной роли"),
+                        ("Лучший режиссер", "Лучшая режиссура года"),
+                        ("Лучший сценарий", "Лучший оригинальный или адаптированный сценарий")
+                    ],
+                )
+                # Добавляем участников для каждой номинации
+                nomination_ids = db.execute("SELECT id FROM nominations ORDER BY id").fetchall()
+                nominee_data = [
+                    # Лучший фильм
+                    ("Оппенгеймер", "Фильм о создании атомной бомбы", nomination_ids[0]['id']),
+                    ("Барби", "Комедийно-драматический фильм о кукле", nomination_ids[0]['id']),
+                    ("Дюна: Часть вторая", "Научная фантастика", nomination_ids[0]['id']),
+                    # Лучший актер
+                    ("Киллиан Мёрфи", "Роль в фильме Оппенгеймер", nomination_ids[1]['id']),
+                    ("Райан Гослинг", "Роль в фильме Барби", nomination_ids[1]['id']),
+                    ("Пол Дано", "Роль в фильме Уэстсайдская история", nomination_ids[1]['id']),
+                    # Лучшая актриса
+                    ("Эмма Стоун", "Роль в фильме Дама дикого запада", nomination_ids[2]['id']),
+                    ("Лили Гладон", "Роль в фильме Барби", nomination_ids[2]['id']),
+                    ("Саори Хиросэ", "Роль в фильме Убийцы", nomination_ids[2]['id']),
+                    # Лучший режиссер
+                    ("Кристофер Нолан", "Режиссура фильма Оппенгеймер", nomination_ids[3]['id']),
+                    ("Грета Гервиг", "Режиссура фильма Барби", nomination_ids[3]['id']),
+                    ("Дени Вильнёв", "Режиссура фильма Дюна: Часть вторая", nomination_ids[3]['id']),
+                    # Лучший сценарий
+                    ("Человек-паук: Паутина вселенной", "Лучший оригинальный сценарий", nomination_ids[4]['id']),
+                    ("Вторжение", "Лучший адаптированный сценарий", nomination_ids[4]['id']),
+                    ("Грань", "Лучший оригинальный сценарий", nomination_ids[4]['id'])
+                ]
+                db.executemany(
+                    "INSERT INTO nominees (name, description, nomination_id) VALUES (?, ?, ?)",
+                nominee_data
             )
-        """)
-        # Seed some sample teachers if table is empty
-        cur = db.execute("SELECT COUNT(1) as cnt FROM teachers")
-        cnt = cur.fetchone()[0]
-        if cnt == 0:
-            db.executemany(
-                "INSERT INTO teachers (name, subject, description, votes) VALUES (?, ?, ?, ?)",
-                [
-                    ("Иванов Иван", "Математика", "Опытный преподаватель высшей категории.", 10),
-                    ("Петрова Мария", "Русский язык", "Любит творчество и проекты с учениками.", 7),
-                    ("Сидоров Алексей", "Физика", "Провёл несколько олимпиадных курсов.", 5),
-                ],
-            )
-        # Settings table for site-wide editable values
-        db.execute("""
-            CREATE TABLE IF NOT EXISTS settings (
-                key TEXT PRIMARY KEY,
-                value TEXT
-            )
-        """)
-        # Seed default settings
-        cur = db.execute("SELECT 1 FROM settings WHERE key = 'site_title'")
-        if not cur.fetchone():
-            db.execute("INSERT INTO settings (key, value) VALUES (?, ?)", ("site_title", "Выбор Учителя Года"))
-            db.execute("INSERT INTO settings (key, value) VALUES (?, ?)", ("banner_text", "Выпускной 2025 — поздравляем!") )
-            db.execute("INSERT INTO settings (key, value) VALUES (?, ?)", ("primary_color", "#0d6efd") )
-            db.execute("INSERT INTO settings (key, value) VALUES (?, ?)", ("header_image", "") )
-            db.execute("INSERT INTO settings (key, value) VALUES (?, ?)", ("background_image", "") )
-            db.execute("INSERT INTO settings (key, value) VALUES (?, ?)", ("use_background", "0") )
-            # Make dark theme the default
-            db.execute("INSERT INTO settings (key, value) VALUES (?, ?)", ("theme", "dark") )
-            db.execute("INSERT INTO settings (key, value) VALUES (?, ?)", ("navbar_style", "transparent") )
-            db.execute("INSERT INTO settings (key, value) VALUES (?, ?)", ("candidates_opacity", "0.12") )
-            db.execute("INSERT INTO settings (key, value) VALUES (?, ?)", ("language", "ru") )
-        # Ensure votes table exists
-        db.execute("""
-            CREATE TABLE IF NOT EXISTS votes (
-                ip TEXT,
-                teacher_id INTEGER,
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(ip, teacher_id)
-            )
-        """)
-        # If votes table was created with UNIQUE(ip, teacher_id), remove that uniqueness constraint
-        cursql = db.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='votes'").fetchone()
-        if cursql and 'UNIQUE(ip, teacher_id)' in (cursql[0] or ''):
-            # recreate table without UNIQUE constraint (SQLite: recreate table and copy data)
-            db.execute("ALTER TABLE votes RENAME TO votes_old")
-            db.execute("CREATE TABLE votes (ip TEXT, teacher_id INTEGER, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, voter_id TEXT)")
-            db.execute("INSERT INTO votes (ip, teacher_id, timestamp, voter_id) SELECT ip, teacher_id, timestamp, voter_id FROM votes_old")
-            db.execute("DROP TABLE votes_old")
-        # Add voter_id column to votes if missing, then create unique index on it
-        curv = db.execute("PRAGMA table_info(votes)")
-        vcols = [r['name'] for r in curv.fetchall()]
-        if 'voter_id' not in vcols:
-            db.execute("ALTER TABLE votes ADD COLUMN voter_id TEXT")
-        db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_votes_voter_id ON votes(voter_id)")
-
-        # Add photo column to teachers table if missing (SQLite: ALTER TABLE ADD COLUMN)
-        cur = db.execute("PRAGMA table_info(teachers)")
-        cols = [r['name'] for r in cur.fetchall()]
-        if 'photo' not in cols:
-            db.execute("ALTER TABLE teachers ADD COLUMN photo TEXT")
-
+            # Settings table for site-wide editable values
+            db.execute("""
+                CREATE TABLE IF NOT EXISTS settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT
+                )
+            """)
+            # Seed default settings
+            cur = db.execute("SELECT 1 FROM settings WHERE key = 'site_title'")
+            if not cur.fetchone():
+                db.execute("INSERT INTO settings (key, value) VALUES (?, ?)", ("site_title", "Голосование за Оскар"))
+                db.execute("INSERT INTO settings (key, value) VALUES (?, ?)", ("banner_text", "Оскар 2025 — голосуем за лучшее!") )
+                db.execute("INSERT INTO settings (key, value) VALUES (?, ?)", ("primary_color", "#0d6efd") )
+                db.execute("INSERT INTO settings (key, value) VALUES (?, ?)", ("header_image", "") )
+                db.execute("INSERT INTO settings (key, value) VALUES (?, ?)", ("background_image", "") )
+                db.execute("INSERT INTO settings (key, value) VALUES (?, ?)", ("use_background", "0") )
+                # Make dark theme the default
+                db.execute("INSERT INTO settings (key, value) VALUES (?, ?)", ("theme", "dark") )
+                db.execute("INSERT INTO settings (key, value) VALUES (?, ?)", ("navbar_style", "transparent") )
+                db.execute("INSERT INTO settings (key, value) VALUES (?, ?)", ("candidates_opacity", "0.12") )
+                db.execute("INSERT INTO settings (key, value) VALUES (?, ?)", ("language", "ru") )
+                db.execute("INSERT INTO settings (key, value) VALUES (?, ?)", ("text_brightness", "0.8") )
+            # Ensure votes table exists (updated for nominees)
+            # Drop and recreate votes table to fix any old constraints
+            db.execute("DROP TABLE IF EXISTS votes")
+            db.execute("""
+                CREATE TABLE votes (
+                    ip TEXT,
+                    nominee_id INTEGER,
+                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    voter_id TEXT,
+                    nomination_id INTEGER
+                )
+            """)
+            # Add indexes
+            db.execute("CREATE INDEX IF NOT EXISTS idx_votes_nominee_id ON votes(nominee_id)")
+            db.execute("CREATE INDEX IF NOT EXISTS idx_nominees_nomination_id ON nominees(nomination_id)")
+            # Drop old index if exists and create new unique index
+            db.execute("DROP INDEX IF EXISTS idx_votes_voter_nomination")
+            db.execute("DROP INDEX IF EXISTS idx_votes_voter")
+            db.execute("CREATE UNIQUE INDEX idx_votes_voter_nomination ON votes(voter_id, nomination_id)")
+            db.execute("CREATE INDEX IF NOT EXISTS idx_votes_ip_nomination ON votes(ip, nomination_id)")
+                
+            # Создаем триггер для обновления поля updated_at
+            db.execute("""
+                CREATE TRIGGER IF NOT EXISTS update_nominations_timestamp
+                AFTER UPDATE ON nominations
+                FOR EACH ROW
+                BEGIN
+                    UPDATE nominations SET updated_at = CURRENT_TIMESTAMP
+                    WHERE id = OLD.id;
+                END;
+            """)
+ 
 # Flask 3.x убрал `before_first_request`; инициализируем базу данных прямо сейчас в контексте приложения
 with app.app_context():
     init_db()
 
 
+def get_settings():
+    """Получение настроек из базы данных с кэшированием"""
+    if not hasattr(get_settings, 'cache') or getattr(get_settings, 'last_updated', 0) < time.time() - 300:  # Кэш на 5 минут
+        try:
+            with get_db() as db:
+                settings = {r['key']: r['value'] for r in db.execute("SELECT key, value FROM settings").fetchall()}
+            get_settings.cache = settings
+            get_settings.last_updated = time.time()
+        except Exception as e:
+            logger.error(f"Ошибка при загрузке настроек: {e}")
+            get_settings.cache = {}
+    return get_settings.cache
+
+def clear_settings_cache():
+    """Очистка кэша настроек"""
+    if hasattr(get_settings, 'cache'):
+        delattr(get_settings, 'cache')
+    if hasattr(get_settings, 'last_updated'):
+        delattr(get_settings, 'last_updated')
+
 @app.context_processor
 def inject_settings():
-    try:
-        with get_db() as db:
-            settings = {r['key']: r['value'] for r in db.execute("SELECT key, value FROM settings").fetchall()}
-    except Exception:
-        settings = {}
+    """Добавление настроек в контекст шаблонов"""
+    settings = get_settings()
     # If user has a theme cookie, prefer it for rendering (per-user choice)
     try:
         cookie_theme = request.cookies.get('theme')
@@ -191,28 +294,44 @@ def user_theme():
 
 # Note: no fixed upload size limit configured; uploaded images are resized instead of being rejected.
 
-@app.route("/")
+@app.route('/')
 def index():
+    """Главная страница со списком номинаций"""
     try:
         with get_db() as db:
-            teachers = db.execute("SELECT * FROM teachers ORDER BY votes DESC").fetchall()
-            settings = {r['key']: r['value'] for r in db.execute("SELECT key, value FROM settings").fetchall()}
-            voter_id = request.cookies.get('voter_id')
-            my_vote = None
-            if voter_id:
-                vr = db.execute("SELECT teacher_id FROM votes WHERE voter_id = ?", (voter_id,)).fetchone()
-                if vr:
-                    my_vote = vr['teacher_id']
-        return render_template("index.html", teachers=teachers, settings=settings, my_vote=my_vote)
-    except Exception as e:
-        app.logger.exception('Error rendering index: %s', e)
-        # show a friendly page with an explanation and admin link
-        flash('Произошла ошибка при отображении главной страницы — проверьте настройки в админке.', 'danger')
-        return render_template('index.html', teachers=[], settings={}, my_vote=None)
+            nominations = db.execute("""
+                SELECT n.id, n.name, n.description, n.created_at, n.updated_at, COUNT(nm.id) as nominee_count
+                FROM nominations n
+                LEFT JOIN nominees nm ON n.id = nm.nomination_id
+                GROUP BY n.id
+                ORDER BY n.name
+            """).fetchall()
 
-@app.route("/vote/<int:teacher_id>", methods=["POST"])
-def vote(teacher_id):
-    ip = request.remote_addr
+            # Добавляем случайный порядок для отображения номинаций
+            nominations = list(nominations)
+            random.shuffle(nominations)
+
+            # Проверяем, голосовал ли пользователь в каждой номинации
+            voter_id = request.cookies.get('voter_id')
+            nomination_vote_status = {}
+            if voter_id:
+                for nomination in nominations:
+                    # Проверяем, есть ли голос от этого пользователя в этой номинации
+                    vote = db.execute("SELECT 1 FROM votes WHERE voter_id = ? AND nomination_id = ?", (voter_id, nomination['id'])).fetchone()
+                    nomination_vote_status[nomination['id']] = bool(vote)
+
+            return render_template('index.html',
+                               nominations=nominations,
+                               nomination_vote_status=nomination_vote_status,
+                               now=datetime.now())
+
+    except Exception as e:
+        logger.error(f"Ошибка при загрузке номинаций: {e}")
+        flash('Произошла ошибка при загрузке номинаций. Пожалуйста, попробуйте позже.', 'danger')
+        return render_template('index.html', nominations=[], nomination_vote_status={}, settings=get_settings())
+
+@app.route("/vote/<int:nominee_id>", methods=["POST"])
+def vote(nominee_id):
     voter_id = request.cookies.get('voter_id')
     if not voter_id:
         voter_id = secrets.token_hex(16)
@@ -222,56 +341,65 @@ def vote(teacher_id):
     category = 'info'
     ok = False
     with get_db() as db:
-        # Check if this voter_id already has a vote (so we can change it)
-        existing = db.execute("SELECT teacher_id FROM votes WHERE voter_id = ?", (voter_id,)).fetchone()
-        if existing:
-            old_tid = existing['teacher_id']
-            if old_tid == teacher_id:
-                msg = "Вы уже голосовали за этого учителя."
-                category = 'warning'
-                ok = False
-            else:
-                # perform change: decrement old teacher, update vote row, increment new teacher
-                try:
-                    db.execute("UPDATE teachers SET votes = CASE WHEN votes > 0 THEN votes - 1 ELSE 0 END WHERE id = ?", (old_tid,))
-                    db.execute("UPDATE votes SET teacher_id = ?, ip = ?, timestamp = CURRENT_TIMESTAMP WHERE voter_id = ?", (teacher_id, ip, voter_id))
-                    db.execute("UPDATE teachers SET votes = votes + 1 WHERE id = ?", (teacher_id,))
+        # Get the nomination_id for the nominee being voted for
+        nominee_info = db.execute("SELECT nomination_id FROM nominees WHERE id = ?", (nominee_id,)).fetchone()
+        if not nominee_info:
+            msg = "Номинант не найден."
+            category = 'danger'
+            ok = False
+        else:
+            nomination_id = nominee_info['nomination_id']
+
+            # Check if this voter already has a vote in this nomination
+            existing = db.execute("SELECT nominee_id FROM votes WHERE voter_id = ? AND nomination_id = ?", (voter_id, nomination_id)).fetchone()
+
+            if existing:
+                old_nid = existing['nominee_id']
+                if old_nid == nominee_id:
+                    msg = "Вы уже голосовали за этого номинанта."
+                    category = 'warning'
+                    ok = False
+                else:
+                    # Change vote within the same nomination: decrement old nominee, update vote, increment new nominee
+                    db.execute("UPDATE nominees SET votes = CASE WHEN votes > 0 THEN votes - 1 ELSE 0 END WHERE id = ?", (old_nid,))
+                    db.execute("UPDATE votes SET nominee_id = ?, timestamp = CURRENT_TIMESTAMP WHERE voter_id = ? AND nomination_id = ?", (nominee_id, voter_id, nomination_id))
+                    db.execute("UPDATE nominees SET votes = votes + 1 WHERE id = ?", (nominee_id,))
                     msg = "Ваш голос изменён."
                     category = 'success'
                     ok = True
-                except sqlite3.IntegrityError:
-                    # fallback: if update violated some constraint, warn the user
-                    msg = "Не удалось сменить голос из-за конфликта; попробуйте позже."
-                    category = 'warning'
-                    ok = False
-        else:
-            # New voter: ensure IP hasn't voted for this teacher already
-            ip_existing = db.execute("SELECT 1 FROM votes WHERE ip = ? AND teacher_id = ?", (ip, teacher_id)).fetchone()
-            if ip_existing:
-                msg = "С этого IP уже был голос за этого учителя."
-                category = 'warning'
-                ok = False
+
+                    # Логирование изменения голосования
+                    nominee_info = db.execute("SELECT name FROM nominees WHERE id = ?", (nominee_id,)).fetchone()
+                    nominee_name = nominee_info['name'] if nominee_info else 'Unknown'
+                    user_agent = request.headers.get('User-Agent', 'Unknown')
+                    vote_logger.info(f"Vote Change: Nominee={nominee_name}, IP={request.remote_addr}, Browser/Device={user_agent}")
             else:
-                try:
-                    db.execute("UPDATE teachers SET votes = votes + 1 WHERE id = ?", (teacher_id,))
-                    db.execute("INSERT INTO votes (ip, teacher_id, voter_id) VALUES (?, ?, ?)", (ip, teacher_id, voter_id))
-                    msg = "Ваш голос учтён!"
-                    category = 'success'
-                    ok = True
-                except sqlite3.IntegrityError:
-                    msg = "Голос не был принят: вы уже голосовали."
-                    category = 'warning'
-                    ok = False
+                # New vote: insert
+                db.execute("UPDATE nominees SET votes = votes + 1 WHERE id = ?", (nominee_id,))
+                db.execute("INSERT INTO votes (ip, nominee_id, voter_id, nomination_id) VALUES (?, ?, ?, ?)", (request.remote_addr, nominee_id, voter_id, nomination_id))
+                msg = "Ваш голос учтён!"
+                category = 'success'
+                ok = True
+
+                # Логирование голосования
+                nominee_info = db.execute("SELECT name FROM nominees WHERE id = ?", (nominee_id,)).fetchone()
+                nominee_name = nominee_info['name'] if nominee_info else 'Unknown'
+                user_agent = request.headers.get('User-Agent', 'Unknown')
+                vote_logger.info(f"Vote: Nominee={nominee_name}, IP={request.remote_addr}, Browser/Device={user_agent}")
     # If this looks like an XHR/fetch request, return JSON with updated counts
-    ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest' or request.is_json or 'application/json' in request.accept_mimetypes
+    # POST requests from forms are never treated as AJAX
+    ajax = request.method == 'GET' and request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+    # Force redirect for POST requests (form submissions)
+    if request.method == 'POST':
+        ajax = False
     # Build response payload
     with get_db() as db:
-        teachers = db.execute("SELECT id, name, votes FROM teachers ORDER BY votes DESC").fetchall()
-        teachers_list = [{'id': r['id'], 'name': r['name'], 'votes': r['votes']} for r in teachers]
+        nominees = db.execute("SELECT id, name, votes FROM nominees WHERE id = ? ORDER BY votes DESC", (nominee_id,)).fetchall()
+        nominees_list = [{'id': r['id'], 'name': r['name'], 'votes': r['votes']} for r in nominees]
         my_vote = None
-        vr = db.execute("SELECT teacher_id FROM votes WHERE voter_id = ?", (voter_id,)).fetchone()
+        vr = db.execute("SELECT nominee_id FROM votes WHERE voter_id = ? AND nomination_id = ?", (voter_id, nomination_id)).fetchone()
         if vr:
-            my_vote = vr['teacher_id']
+            my_vote = vr['nominee_id']
     # For non-AJAX flows, keep using flash messages for compatibility
     if not ajax:
         try:
@@ -281,19 +409,41 @@ def vote(teacher_id):
 
     if ajax:
         from flask import jsonify
-        resp = jsonify({'ok': bool(ok), 'message': msg or 'Действие выполнено.', 'category': category, 'teachers': teachers_list, 'my_vote': my_vote, 'focus': f'candidate-{teacher_id}'})
+        resp = jsonify({'ok': bool(ok), 'message': msg or 'Действие выполнено.', 'category': category, 'nominees': nominees_list, 'my_vote': my_vote, 'focus': f'nominee-{nominee_id}'})
         resp.set_cookie('voter_id', voter_id, max_age=60*60*24*365, httponly=True, samesite='Lax')
         return resp
     # fallback for normal form submit: redirect back to index with focus param
-    redirect_url = url_for("index") + f"?focus=candidate-{teacher_id}"
+    redirect_url = url_for("index") + f"?focus=nominee-{nominee_id}"
     resp = make_response(redirect(redirect_url))
     resp.set_cookie('voter_id', voter_id, max_age=60*60*24*365, httponly=True, samesite='Lax')
     return resp
     
 
 
-@app.route('/unvote/<int:teacher_id>', methods=['POST'])
-def unvote(teacher_id):
+@app.route('/nomination/<int:nomination_id>')
+def nomination_detail(nomination_id):
+    try:
+        with get_db() as db:
+            nomination = db.execute("SELECT id, name, description, created_at, updated_at FROM nominations WHERE id = ?", (nomination_id,)).fetchone()
+            if not nomination:
+                flash('Номинация не найдена', 'danger')
+                return redirect(url_for('index'))
+
+            nominees = db.execute("SELECT * FROM nominees WHERE nomination_id = ? ORDER BY votes DESC", (nomination_id,)).fetchall()
+            voter_id = request.cookies.get('voter_id')
+            my_vote = None
+            if voter_id:
+                vr = db.execute("SELECT nominee_id FROM votes WHERE voter_id = ? AND nomination_id = ?", (voter_id, nomination_id)).fetchone()
+                if vr:
+                    my_vote = vr['nominee_id']
+        return render_template("nomination.html", nomination=nomination, nominees=nominees, my_vote=my_vote)
+    except Exception as e:
+        app.logger.exception('Error rendering nomination: %s', e)
+        flash('Произошла ошибка при отображении номинации.', 'danger')
+        return redirect(url_for('index'))
+
+@app.route('/unvote/<int:nominee_id>', methods=['POST'])
+def unvote(nominee_id):
     voter_id = request.cookies.get('voter_id')
     msg = None
     category = 'info'
@@ -308,31 +458,52 @@ def unvote(teacher_id):
             return redirect(url_for('index'))
     else:
         with get_db() as db:
-            row = db.execute('SELECT teacher_id FROM votes WHERE voter_id = ?', (voter_id,)).fetchone()
-            if not row:
-                msg = 'Вы ещё не голосовали.'
-                category = 'warning'
+            # Get the nomination_id for the nominee being unvoted
+            nominee_info = db.execute("SELECT nomination_id FROM nominees WHERE id = ?", (nominee_id,)).fetchone()
+            if not nominee_info:
+                msg = "Номинант не найден."
+                category = 'danger'
                 ok = False
             else:
-                if row['teacher_id'] != teacher_id:
-                    msg = 'Нельзя отменить голос за другого кандидата.'
+                nomination_id = nominee_info['nomination_id']
+                row = db.execute('SELECT nominee_id FROM votes WHERE voter_id = ? AND nomination_id = ?', (voter_id, nomination_id)).fetchone()
+                if not row:
+                    msg = 'Вы ещё не голосовали в этой номинации.'
                     category = 'warning'
                     ok = False
                 else:
-                    db.execute('DELETE FROM votes WHERE voter_id = ?', (voter_id,))
-                    db.execute('UPDATE teachers SET votes = CASE WHEN votes > 0 THEN votes - 1 ELSE 0 END WHERE id = ?', (teacher_id,))
-                    msg = 'Ваш голос отменён.'
-                    category = 'info'
-                    ok = True
+                    if row['nominee_id'] != nominee_id:
+                        msg = 'Нельзя отменить голос за другого номинанта.'
+                        category = 'warning'
+                        ok = False
+                    else:
+                        db.execute('DELETE FROM votes WHERE voter_id = ? AND nomination_id = ?', (voter_id, nomination_id))
+                        db.execute('UPDATE nominees SET votes = CASE WHEN votes > 0 THEN votes - 1 ELSE 0 END WHERE id = ?', (nominee_id,))
+                        msg = 'Ваш голос отменён.'
+                        category = 'info'
+                        ok = True
+
+                        # Логирование отмены голосования
+                        nominee_info = db.execute("SELECT name FROM nominees WHERE id = ?", (nominee_id,)).fetchone()
+                        nominee_name = nominee_info['name'] if nominee_info else 'Unknown'
+                        user_agent = request.headers.get('User-Agent', 'Unknown')
+                        vote_logger.info(f"Unvote: Nominee={nominee_name}, IP={request.remote_addr}, Browser/Device={user_agent}")
     # Support AJAX responses
-    ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest' or request.is_json or 'application/json' in request.accept_mimetypes
+    ajax = request.method == 'GET' and request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+    # Force redirect for POST requests (form submissions)
+    if request.method == 'POST':
+        ajax = False
     with get_db() as db:
-        teachers = db.execute("SELECT id, name, votes FROM teachers ORDER BY votes DESC").fetchall()
-        teachers_list = [{'id': r['id'], 'name': r['name'], 'votes': r['votes']} for r in teachers]
+        # Get nomination_id for the nominee
+        nominee_info = db.execute("SELECT nomination_id FROM nominees WHERE id = ?", (nominee_id,)).fetchone()
+        nomination_id = nominee_info['nomination_id'] if nominee_info else None
+        nominees = db.execute("SELECT id, name, votes FROM nominees WHERE nomination_id = ? ORDER BY votes DESC", (nomination_id,)).fetchall()
+        nominees_list = [{'id': r['id'], 'name': r['name'], 'votes': r['votes']} for r in nominees]
         my_vote = None
-        vr = db.execute("SELECT teacher_id FROM votes WHERE voter_id = ?", (voter_id,)).fetchone()
-        if vr:
-            my_vote = vr['teacher_id']
+        if nomination_id:
+            vr = db.execute("SELECT nominee_id FROM votes WHERE voter_id = ? AND nomination_id = ?", (voter_id, nomination_id)).fetchone()
+            if vr:
+                my_vote = vr['nominee_id']
     # For non-AJAX flows, flash the message so server-rendered toasts appear
     if not ajax:
         try:
@@ -342,10 +513,10 @@ def unvote(teacher_id):
 
     if ajax:
         from flask import jsonify
-        resp = jsonify({'ok': bool(ok), 'message': msg or 'Действие выполнено.', 'category': category, 'teachers': teachers_list, 'my_vote': my_vote, 'focus': f'candidate-{teacher_id}'})
+        resp = jsonify({'ok': bool(ok), 'message': msg or 'Действие выполнено.', 'category': category, 'nominees': nominees_list, 'my_vote': my_vote, 'focus': f'nominee-{nominee_id}'})
         resp.set_cookie('voter_id', voter_id, max_age=60*60*24*365, httponly=True, samesite='Lax')
         return resp
-    redirect_url = url_for('index') + f"?focus=candidate-{teacher_id}"
+    redirect_url = url_for('index') + f"?focus=nominee-{nominee_id}"
     resp = make_response(redirect(redirect_url))
     resp.set_cookie('voter_id', voter_id, max_age=60*60*24*365, httponly=True, samesite='Lax')
     return resp
@@ -356,10 +527,12 @@ def admin_login():
     if request.method == "POST":
         username = request.form.get("username")
         password = request.form.get("password")
+        logger.info(f"Login attempt: username={username}, password provided")
         if username == ADMIN_USERNAME and check_password_hash(ADMIN_PASSWORD_HASH, password):
             session["admin_logged_in"] = True
             return redirect(url_for("admin_panel"))
         else:
+            logger.info(f"Login failed: expected username={ADMIN_USERNAME}")
             flash("Неверный логин или пароль", "danger")
     return render_template("admin_login.html")
 
@@ -397,9 +570,10 @@ def admin_reset_settings():
 @admin_required
 def admin_panel():
     with get_db() as db:
-        teachers = db.execute("SELECT * FROM teachers ORDER BY id").fetchall()
+        nominations = db.execute("SELECT * FROM nominations ORDER BY id").fetchall()
+        nominees = db.execute("SELECT * FROM nominees ORDER BY nomination_id, id").fetchall()
         settings = {r['key']: r['value'] for r in db.execute("SELECT key, value FROM settings").fetchall()}
-    return render_template("admin.html", teachers=teachers, settings=settings)
+    return render_template("admin.html", nominations=nominations, nominees=nominees, settings=settings)
 
 
 def get_setting(key, default=None):
@@ -428,6 +602,7 @@ def admin_settings():
             theme_choice = request.form.get('theme', 'light')
             navbar_style = request.form.get('navbar_style', 'transparent')
             candidates_opacity = request.form.get('candidates_opacity', '').strip() or None
+            text_brightness = request.form.get('text_brightness', '').strip() or None
             language = request.form.get('language', 'ru')
             # validate navbar_style
             if navbar_style not in ('transparent', 'semi', 'blur'):
@@ -484,8 +659,17 @@ def admin_settings():
                     set_setting('candidates_opacity', str(v))
                 except Exception:
                     flash('Недопустимое значение прозрачности — сохранено предыдущее.', 'warning')
-            if theme_choice in ('light', 'dark'):
-                set_setting('theme', theme_choice)
+            if text_brightness is not None:
+                # sanitize numeric value
+                try:
+                    v = float(text_brightness)
+                    # clamp 0.1 .. 1.0
+                    v = max(0.1, min(1.0, v))
+                    set_setting('text_brightness', str(v))
+                except Exception:
+                    flash('Недопустимое значение яркости текста — сохранено предыдущее.', 'warning')
+            set_setting('theme', 'dark')  # Always set to dark
+            clear_settings_cache()  # Очистка кэша настроек для немедленного применения изменений
             flash('Настройки сохранены', 'success')
             return redirect(url_for('admin_settings'))
         except Exception as e:
@@ -499,22 +683,22 @@ def admin_settings():
     return render_template('admin_settings.html', settings=settings)
 
 
-@app.route('/admin/edit/<int:teacher_id>', methods=['GET', 'POST'])
+@app.route('/admin/edit/<int:nominee_id>', methods=['GET', 'POST'])
 @admin_required
-def admin_edit(teacher_id):
+def admin_edit(nominee_id):
     with get_db() as db:
-        cur = db.execute('SELECT * FROM teachers WHERE id = ?', (teacher_id,))
-        t = cur.fetchone()
-        if not t:
-            flash('Учитель не найден', 'danger')
+        cur = db.execute('SELECT * FROM nominees WHERE id = ?', (nominee_id,))
+        nominee = cur.fetchone()
+        if not nominee:
+            flash('Номинант не найден', 'danger')
             return redirect(url_for('admin_panel'))
 
     if request.method == 'POST':
         name = request.form.get('name', '').strip()
-        subject = request.form.get('subject', '').strip()
+        category = request.form.get('category', '').strip()
         desc = request.form.get('description', '').strip()
         photo_file = request.files.get('photo')
-        photo_filename = t['photo']
+        photo_filename = nominee['photo']
         if photo_file and photo_file.filename:
             fn = secure_filename(photo_file.filename)
             ext = fn.rsplit('.', 1)[-1].lower() if '.' in fn else ''
@@ -538,20 +722,21 @@ def admin_edit(teacher_id):
                 photo_filename = newfn
             else:
                 flash('Недопустимый формат изображения.', 'danger')
-                return redirect(url_for('admin_edit', teacher_id=teacher_id))
+                return redirect(url_for('admin_edit', nominee_id=nominee_id))
         with get_db() as db:
-            db.execute('UPDATE teachers SET name=?, subject=?, description=?, photo=? WHERE id=?', (name, subject, desc, photo_filename, teacher_id))
-        flash('Учитель обновлён', 'success')
+            db.execute('UPDATE nominees SET name=?, category=?, description=?, photo=? WHERE id=?', (name, category, desc, photo_filename, nominee_id))
+        flash('Номинант обновлён', 'success')
         return redirect(url_for('admin_panel'))
 
-    return render_template('admin_edit.html', t=t)
+    return render_template('admin_edit.html', nominee=nominee)
 
 @app.route("/admin/add", methods=["POST"])
 @admin_required
 def admin_add():
     name = request.form.get("name").strip()
-    subject = request.form.get("subject", "").strip()
+    category = request.form.get("category", "").strip()
     desc = request.form.get("description", "").strip()
+    nomination_id = request.form.get("nomination_id")
     photo_file = request.files.get('photo')
     photo_filename = None
     if photo_file and photo_file.filename:
@@ -565,7 +750,7 @@ def admin_add():
         else:
             flash("Недопустимый формат изображения. Разрешены: png, jpg, jpeg, gif.", "danger")
             return redirect(url_for('admin_panel'))
-    if name:
+    if name and nomination_id:
         # if photo exists, try to resize/optimize
         if photo_filename:
             try:
@@ -578,29 +763,70 @@ def admin_add():
 
         with get_db() as db:
             db.execute(
-                "INSERT INTO teachers (name, subject, description, photo) VALUES (?, ?, ?, ?)",
-                (name, subject, desc, photo_filename)
+                "INSERT INTO nominees (name, category, description, photo, nomination_id) VALUES (?, ?, ?, ?, ?)",
+                (name, category, desc, photo_filename, nomination_id)
             )
-        flash("Учитель добавлен", "success")
+        flash("Номинант добавлен", "success")
     else:
-        flash("Имя обязательно", "danger")
+        flash("Имя и номинация обязательны", "danger")
     return redirect(url_for("admin_panel"))
 
-@app.route("/admin/delete/<int:teacher_id>")
+@app.route("/admin/add_nomination", methods=["POST"])
 @admin_required
-def admin_delete(teacher_id):
+def admin_add_nomination():
+    name = request.form.get("name").strip()
+    description = request.form.get("description", "").strip()
+    if name:
+        with get_db() as db:
+            db.execute(
+                "INSERT INTO nominations (name, description) VALUES (?, ?)",
+                (name, description)
+            )
+        flash("Номинация добавлена", "success")
+    else:
+        flash("Название номинации обязательно", "danger")
+    return redirect(url_for("admin_panel"))
+
+@app.route("/admin/delete_nomination/<int:nomination_id>")
+@admin_required
+def admin_delete_nomination(nomination_id):
+    with get_db() as db:
+        # First delete all nominees in this nomination and their votes
+        nominees_cur = db.execute("SELECT id, photo FROM nominees WHERE nomination_id = ?", (nomination_id,))
+        nominees = nominees_cur.fetchall()
+        for nominee in nominees:
+            nominee_id = nominee['id']
+            photo = nominee['photo']
+            # remove uploaded photo file if exists
+            if photo:
+                try:
+                    os.remove(os.path.join(UPLOAD_FOLDER, photo))
+                except Exception:
+                    pass
+            # delete votes for this nominee
+            db.execute("DELETE FROM votes WHERE nominee_id = ?", (nominee_id,))
+        # delete nominees
+        db.execute("DELETE FROM nominees WHERE nomination_id = ?", (nomination_id,))
+        # delete nomination itself
+        db.execute("DELETE FROM nominations WHERE id = ?", (nomination_id,))
+    flash("Номинация и все номинанты в ней удалены", "info")
+    return redirect(url_for("admin_panel"))
+
+@app.route("/admin/delete/<int:nominee_id>")
+@admin_required
+def admin_delete(nominee_id):
     with get_db() as db:
         # remove uploaded photo file if exists
-        cur = db.execute("SELECT photo FROM teachers WHERE id = ?", (teacher_id,))
+        cur = db.execute("SELECT photo FROM nominees WHERE id = ?", (nominee_id,))
         row = cur.fetchone()
         if row and row['photo']:
             try:
                 os.remove(os.path.join(UPLOAD_FOLDER, row['photo']))
             except Exception:
                 pass
-        db.execute("DELETE FROM teachers WHERE id = ?", (teacher_id,))
-        db.execute("DELETE FROM votes WHERE teacher_id = ?", (teacher_id,))
-    flash("Учитель удалён", "info")
+        db.execute("DELETE FROM nominees WHERE id = ?", (nominee_id,))
+        db.execute("DELETE FROM votes WHERE nominee_id = ?", (nominee_id,))
+    flash("Номинант удалён", "info")
     return redirect(url_for("admin_panel"))
 
 if __name__ == "__main__":

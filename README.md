@@ -23,7 +23,7 @@ Notes
 - The app prevents multiple votes per person by assigning a `voter_id` cookie and storing it in the DB. This is basic protection and can be bypassed by clearing cookies or changing devices.
 
 Admin
-- Login at `/admin/login` using default credentials `admin` / `secret`.
+- Login at `/admin/login` using default credentials `admin` / `admin`.
 - Settings available at `/admin/settings` (change title, banner, header image, language).
 - Edit teachers at the admin panel.
 

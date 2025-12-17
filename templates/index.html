@@ -1,385 +1,140 @@
-﻿{% extends "base.html" %}
+﻿﻿{% extends "base.html" %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
-    <h2 class="mb-0">Кандидаты</h2>
-    {% if my_vote %}
-        <small class="text-muted">Вы уже проголосовали — можно <strong>сменить</strong> или <strong>отменить</strong> голос</small>
-    {% else %}
-        <small class="text-muted">Вы ещё не голосовали — выберите кандидата</small>
-    {% endif %}
-</div>
-{% if my_vote %}
-    {# find voted teacher object #}
-    {% set voted = None %}
-    {% for t in teachers %}{% if t.id == my_vote %}{% set voted = t %}{% endif %}{% endfor %}
-    {% if voted %}
-        <div class="alert alert-info d-flex justify-content-between align-items-center" role="alert">
-            <div>Вы проголосовали за <strong>{{ voted.name }}</strong>.</div>
-            <div>
-                <form class="d-inline" method="POST" action="{{ url_for('unvote', teacher_id=voted.id) }}">
-                    <button type="submit" class="btn btn-sm btn-outline-danger" data-bs-toggle="tooltip" title="Отменить ваш голос">Отменить</button>
-                </form>
-                <a href="#candidates" class="btn btn-sm btn-secondary ms-2" data-bs-toggle="tooltip" title="Выберите другого кандидата на странице">Сменить</a>
-            </div>
-        </div>
-    {% endif %}
-{% endif %}
-{% if teachers %}
-<!-- expose teacher ids for JS interactions -->
-<script id="votes-ids" type="application/json">{{ teachers|map(attribute='id')|list|tojson }}</script>
-    <div class="row gx-4 gy-4">
-        <div class="col-12" id="candidates">
-            <div class="list-group">
-                {% for t in teachers %}
-                    <div id="candidate-{{ t.id }}" class="list-group-item d-flex align-items-start gap-3 fade-in {% if my_vote == t.id %}selected-candidate{% endif %}">
-                        <div>
-                            {% if t.photo %}
-                                    <img loading="lazy" src="{{ url_for('static', filename='uploads/' ~ t.photo) }}" alt="{{ t.name }}" class="teacher-photo me-3">
-                                {% else %}
-                                    <img loading="lazy" src="{{ url_for('static', filename='placeholder.svg') }}" alt="{{ t.name }}" class="teacher-photo me-3">
-                                {% endif %}
+<div class="container py-5">
+    <div class="text-center mb-5 fade-in">
+        <h1 class="display-4 fw-bold mb-3">Номинации Оскар 2025</h1>
+        <p class="lead text-muted">Проголосуйте за лучших в каждой категории</p>
+        <div class="divider mx-auto my-4" style="width: 80px; height: 4px; background: linear-gradient(90deg, var(--primary), #6c5ce7); border-radius: 2px;"></div>
+    </div>
+
+{% if nominations %}
+    <div class="row g-4">
+        {% for nomination in nominations %}
+            <div class="col-lg-4 col-md-6 col-sm-12 mb-4 fade-in delay-{{ loop.index % 3 }}">
+                <div class="card h-100 nomination-card shadow-sm border-0 overflow-hidden">
+                    <div class="position-relative">
+                        <div class="card-img-top bg-gradient" style="height: 160px; background: linear-gradient(45deg, var(--primary), #6c5ce7);">
+                            <div class="d-flex align-items-center justify-content-center h-100">
+                                <i class="bi bi-trophy-fill text-white" style="font-size: 4rem; opacity: 0.2;"></i>
+                            </div>
                         </div>
-                        <div class="flex-fill d-flex flex-column justify-content-between">
-                            <div>
-                                <div class="h4 mb-1">{{ t.name }} {% if my_vote == t.id %}<span class="badge bg-primary ms-2">Ваш выбор</span>{% endif %}</div>
-                                <div class="text-muted mb-2">{{ t.subject or '' }}</div>
-                                {% if t.description %}<div class="mb-2"><em>{{ t.description }}</em></div>{% endif %}
-                            </div>
-                                <div class="d-flex justify-content-between align-items-center">
-                                <div style="min-width:180px">
-                                    <div class="h5 mb-1"><span id="votes-count-{{ t.id }}" class="vote-count">{{ t.votes }}</span></div>
-                                    <div class="progress" style="height:12px;">
-                                        <div class="progress-bar" role="progressbar" style="background: var(--primary); width: {{ (t.votes / (teachers|map(attribute='votes')|sum + 0.001) * 100)|round(1) }}%"></div>
-                                    </div>
+                        <div class="position-absolute top-0 end-0 m-3">
+                            <span class="badge bg-light text-primary fw-bold py-2 px-3 shadow-sm">#{{ loop.index }}</span>
+                            {% if nomination_vote_status.get(nomination.id) %}
+                                <div class="mt-2">
+                                    <span class="badge bg-success text-white fw-bold py-1 px-2 shadow-sm">
+                                        <i class="bi bi-check-circle-fill me-1"></i>Проголосовали
+                                    </span>
                                 </div>
-                                <div class="vote-actions">
-                                {% if my_vote %}
-                                    {% if my_vote == t.id %}
-                                        <form method="POST" action="{{ url_for('unvote', teacher_id=t.id) }}">
-                                            <button type="submit" class="btn btn-outline-danger" data-bs-toggle="tooltip" title="Отменить ваш голос">Отменить голос</button>
-                                        </form>
-                                    {% else %}
-                                        <form method="POST" action="{{ url_for('vote', teacher_id=t.id) }}">
-                                            <button type="submit" class="btn btn-secondary" data-bs-toggle="tooltip" title="Сменить голос на этого кандидата">Сменить голос</button>
-                                        </form>
-                                    {% endif %}
-                                {% else %}
-                                    <form method="POST" action="{{ url_for('vote', teacher_id=t.id) }}">
-                                        <button type="submit" class="btn btn-primary" data-bs-toggle="tooltip" title="Проголосовать за этого кандидата">Голосовать</button>
-                                    </form>
-                                {% endif %}
+                            {% else %}
+                                <div class="mt-2">
+                                    <span class="badge bg-warning text-dark fw-bold py-1 px-2 shadow-sm">
+                                        <i class="bi bi-circle me-1"></i>Не голосовали
+                                    </span>
                                 </div>
-                            </div>
+                            {% endif %}
                         </div>
                     </div>
-                {% endfor %}
+                    <div class="card-body d-flex flex-column p-4">
+                        <div class="d-flex align-items-center mb-3">
+                            <h4 class="card-title mb-0 fw-bold">{{ nomination.name }}</h4>
+                            <div class="ms-auto">
+                                <span class="badge bg-primary bg-opacity-10 text-primary">{{ nomination.nominee_count }} участников</span>
+                            </div>
+                        </div>
+                        <p class="card-text text-muted flex-grow-1">
+                            {{ nomination.description or 'Проголосуйте за лучшего в этой категории' }}
+                        </p>
+                <div class="mt-4 pt-2 border-top">
+                    <a href="{{ url_for('nomination_detail', nomination_id=nomination.id) }}"
+                       class="btn {% if nomination_vote_status.get(nomination.id) %}btn-success{% else %}btn-primary{% endif %} btn-hover-zoom w-100 d-flex align-items-center justify-content-between">
+                        <span>{% if nomination_vote_status.get(nomination.id) %}Уже проголосовали{% else %}Проголосовать{% endif %}</span>
+                        <i class="bi {% if nomination_vote_status.get(nomination.id) %}bi-check-circle-fill{% else %}bi-arrow-right{% endif %} ms-2"></i>
+                    </a>
+                </div>
+                    </div>
+                </div>
             </div>
-        </div>
-        </div>
+        {% endfor %}
     </div>
 {% else %}
-    <div class="alert alert-info">Пока нет кандидатов. <a href="{{ url_for('admin_login') }}">Добавьте в админке</a>.</div>
+    <div class="text-center py-5 my-5 fade-in">
+        <div class="card border-0 bg-light p-5">
+            <div class="card-body">
+                <div class="mb-4">
+                    <i class="bi bi-award text-muted" style="font-size: 4rem; opacity: 0.2;"></i>
+                </div>
+                <h3 class="h4 mb-3">Номинации еще не добавлены</h3>
+                <p class="text-muted mb-4">В данный момент нет активных номинаций для голосования.</p>
+                <a href="{{ url_for('admin_login') }}" class="btn btn-primary px-4">
+                    <i class="bi bi-box-arrow-in-right me-2"></i>Войти в админку
+                </a>
+            </div>
+        </div>
+    </div>
 {% endif %}
+</div> <!-- Close container -->
 
-<hr class="my-4">
-<h3>Статистика</h3>
-<!-- data for chart: use application/json to avoid interfering with editors/linters -->
-<script id="votes-data" type="application/json">{{ teachers|map(attribute='name')|list|tojson }}</script>
-<script id="votes-counts" type="application/json">{{ teachers|map(attribute='votes')|list|tojson }}</script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<!-- Centered small stats at bottom -->
-<div class="text-center mt-4">
-    <div class="d-inline-block text-center mb-3">
-        <div id="leaderPhoto" style="width:56px;height:56px;border-radius:8px;overflow:hidden;background:#f0f0f0;margin:0 auto"></div>
-        <div id="leaderName" class="fw-bold mt-2">—</div>
-        <div class="leader-block justify-content-center"><div class="counter" id="leaderCount">0</div><div id="leaderPct" class="small text-muted ms-2">— %</div></div>
-    </div>
-    <div class="small-donut">
-        <canvas id="smallVotesChart" width="120" height="120"></canvas>
-    </div>
-    <div class="center-label small text-muted mt-2" id="totalVotes">— голосов</div>
-    <div id="votesLegend" class="mt-3 small text-center mx-auto" style="max-width:620px"></div>
-</div>
-<script>
-    (function(){
-        const labels = JSON.parse(document.getElementById('votes-data').textContent || '[]');
-        const data = JSON.parse(document.getElementById('votes-counts').textContent || '[]');
-        const ctx = document.getElementById('votesChart');
-        if(!labels.length) return;
-        // create main chart only if canvas exists (we removed right-side chart for compact view)
-        if(ctx){
-            // expose charts to window so they can be updated after AJAX voting
-            window.mainVotesChart = new Chart(ctx, {
-                type: 'doughnut',
-                data: { labels: labels, datasets: [{ data: data, backgroundColor: labels.map((_,i)=>colors[i%colors.length]) }] },
-                options: { responsive: true, plugins: { legend: { display: false }, tooltip: { callbacks: { label: function(ctx){ return ctx.label + ': ' + ctx.formattedValue + ' голосов'; } } } } }
-            });
-        }
-        const colors = ['#0d6efd','#198754','#fd7e14','#6f42c1','#dc3545','#0dcaf0','#6610f2'];
+<!-- Add some custom styles for the cards -->
+<style>
+    .nomination-card {
+        transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+        border-radius: 12px;
+        overflow: hidden;
+        background: var(--surface);
+        border: 1px solid rgba(0,0,0,0.05);
+    }
+    
+    .nomination-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 10px 25px rgba(0,0,0,0.1) !important;
+    }
+    
+    .btn-hover-zoom {
+        transition: all 0.3s ease;
+        position: relative;
+        overflow: hidden;
+        z-index: 1;
+    }
+    
+    .btn-hover-zoom:after {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 0;
+        height: 100%;
+        background-color: rgba(255,255,255,0.2);
+        transition: all 0.3s ease;
+        z-index: -1;
+    }
+    
+    .btn-hover-zoom:hover:after {
+        width: 100%;
+    }
+    
+    .card {
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    
+    .card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 10px 25px rgba(0,0,0,0.1) !important;
+    }
+    
+    /* Add animation for the badge */
+    @keyframes bounce {
+        0%, 100% { transform: translateY(0); }
+        50% { transform: translateY(-5px); }
+    }
+    
+    .badge {
+        transition: all 0.3s ease;
+    }
+    
+    .nomination-card:hover .badge {
+        animation: bounce 1s ease infinite;
+    }
+</style>
 
-        // build legend with percentages and mini bars + make clickable
-        const total = data.reduce((s,v)=>s+v,0) || 1;
-        const legendEl = document.getElementById('votesLegend');
-        const ids = JSON.parse(document.getElementById('votes-ids').textContent || '[]');
-        legendEl.innerHTML = labels.map((l,i)=>{
-            const pct = ((data[i]/total)*100).toFixed(1);
-            const color = colors[i%colors.length];
-            // include data-id for click targeting and initial bar width zero for animation
-            return `<div class="legend-item" data-id="${ids[i]}"><div class="legend-left"><span class="legend-swatch" style="background:${color}"></span><div>${l}</div></div><div class="text-end"><div class="small text-muted">${data[i]} • ${pct}%</div><div class="legend-bar mt-1"><i style="width:0%; background:${color}"></i></div></div></div>`
-        }).join('');
-
-        // animate mini-bars: set widths after a short delay
-        setTimeout(()=>{
-            legendEl.querySelectorAll('.legend-item').forEach((el, idx)=>{
-                const pct = ((data[idx]/total)*100).toFixed(1);
-                const bar = el.querySelector('.legend-bar > i');
-                if(bar) bar.style.width = pct + '%';
-            });
-        }, 120);
-
-        // make legend clickable: focus/scroll candidate and add temporary highlight (delayed adding of highlight for smoother experience)
-        legendEl.querySelectorAll('.legend-item').forEach(function(li){
-            li.style.cursor = 'pointer';
-            li.addEventListener('click', function(){
-                const id = li.getAttribute('data-id');
-                if(!id) return;
-                const sel = document.getElementById('candidate-' + id);
-                if(!sel) return;
-                // start smooth scroll
-                sel.scrollIntoView({behavior:'smooth', block:'center'});
-                // delay adding the glow until scroll has started to avoid jank
-                setTimeout(function(){
-                    // remove existing focus
-                    document.querySelectorAll('.list-group-item.focused').forEach(function(n){ n.classList.remove('focused'); });
-                    sel.classList.add('focused');
-                    try{ confetti({ particleCount: 60, spread: 110, origin: { y: 0.45 } }); }catch(e){}
-                    // remove highlight after a while
-                    setTimeout(function(){ try{ sel.classList.remove('focused'); }catch(e){} }, 3000);
-                }, 260);
-            });
-        });
-
-        // animate vote counts fading in for smooth feel
-        document.addEventListener('DOMContentLoaded', function(){ setTimeout(function(){ document.querySelectorAll('.vote-count').forEach(function(n){ n.classList.add('appeared'); }); }, 60); });
-
-        // Intercept vote/unvote form submissions and perform AJAX requests to update page smoothly
-        function rebuildLegend(teachers){
-            const legendEl = document.getElementById('votesLegend');
-            const total = teachers.reduce((s,t)=>s+t.votes, 0) || 1;
-            legendEl.innerHTML = teachers.map((t,i)=>{
-                const pct = ((t.votes/total)*100).toFixed(1);
-                const color = colors[i%colors.length];
-                return `<div class="legend-item" data-id="${t.id}"><div class="legend-left"><span class="legend-swatch" style="background:${color}"></span><div>${t.name}</div></div><div class="text-end"><div class="small text-muted">${t.votes} • ${pct}%</div><div class="legend-bar mt-1"><i style="width:${pct}% ; background:${color}"></i></div></div></div>`;
-            }).join('');
-            // reattach click handlers
-            legendEl.querySelectorAll('.legend-item').forEach(function(li){ li.style.cursor='pointer'; li.addEventListener('click', function(){ const id = li.getAttribute('data-id'); if(!id) return; // use smoothFocus which now waits for IntersectionObserver
-                if(window.smoothFocus){ window.smoothFocus('candidate-' + id); } else { const sel = document.getElementById('candidate-' + id); if(sel) sel.scrollIntoView({behavior:'smooth', block:'center'}); }
-            }); });
-        }
-
-        function updateFromServer(payload){
-            if(!payload || !payload.teachers) return;
-            const teachers = payload.teachers;
-            const total = teachers.reduce((s,t)=>s+t.votes,0);
-            // update counts and progress bars
-            // helper to animate incremental numeric changes
-            function animateNumber(el, from, to, duration){
-                const start = performance.now();
-                function step(now){
-                    const p = Math.min(1, (now - start) / duration);
-                    const cur = Math.round(from + (to - from) * p);
-                    el.textContent = cur;
-                    if(p < 1) requestAnimationFrame(step);
-                }
-                requestAnimationFrame(step);
-            }
-            teachers.forEach(function(t){
-                const span = document.getElementById('votes-count-' + t.id);
-                if(span){
-                    const old = parseInt(span.textContent || '0', 10);
-                    if(old !== t.votes) animateNumber(span, old, t.votes, 600);
-                    span.classList.add('appeared');
-                }
-                const prog = document.querySelector('#candidate-' + t.id + ' .progress-bar');
-                if(prog && total>0){ prog.style.width = ((t.votes/total)*100).toFixed(1) + '%'; }
-            });
-            // Update selected state and vote buttons (using payload.my_vote)
-            const my_vote = payload.my_vote || null;
-            teachers.forEach(function(t){
-                const cand = document.getElementById('candidate-' + t.id);
-                if(!cand) return;
-                // update selected-candidate class
-                if(my_vote && my_vote === t.id){ cand.classList.add('selected-candidate'); } else { cand.classList.remove('selected-candidate'); }
-                // update name header badge (Ваш выбор)
-                const h4 = cand.querySelector('.h4');
-                if(h4){
-                    if(my_vote && my_vote === t.id){ h4.innerHTML = `${t.name} <span class="badge bg-primary ms-2">Ваш выбор</span>`; }
-                    else { h4.textContent = t.name; }
-                }
-                // update vote action buttons
-                const actions = cand.querySelector('.vote-actions');
-                if(actions){
-                    let html = '';
-                    if(my_vote){
-                        if(my_vote === t.id){
-                            html = `<form method="POST" action="/unvote/${t.id}"><button type="submit" class="btn btn-outline-danger" data-bs-toggle="tooltip" title="Отменить ваш голос">Отменить голос</button></form>`;
-                        } else {
-                            html = `<form method="POST" action="/vote/${t.id}"><button type="submit" class="btn btn-secondary" data-bs-toggle="tooltip" title="Сменить голос на этого кандидата">Сменить голос</button></form>`;
-                        }
-                    } else {
-                        html = `<form method="POST" action="/vote/${t.id}"><button type="submit" class="btn btn-primary" data-bs-toggle="tooltip" title="Проголосовать за этого кандидата">Голосовать</button></form>`;
-                    }
-                    actions.innerHTML = html;
-                }
-            });
-            // re-bind vote handlers for newly replaced forms
-            attachVoteHandlers();
-            // update legend and leader
-            rebuildLegend(teachers);
-            if(window.mainVotesChart){
-                window.mainVotesChart.data.labels = teachers.map(t=>t.name);
-                window.mainVotesChart.data.datasets[0].data = teachers.map(t=>t.votes);
-                window.mainVotesChart.update();
-            }
-            if(window.smallVotesChart){
-                window.smallVotesChart.data.labels = teachers.map(t=>t.name);
-                window.smallVotesChart.data.datasets[0].data = teachers.map(t=>t.votes);
-                window.smallVotesChart.update();
-            }
-            // update leader block — animate if leader changed
-            const max = teachers.reduce((m,t)=> t.votes > (m.votes||0) ? t : m, {});
-            try{
-                const leaderEl = document.getElementById('leaderName');
-                const prevLeader = window.__leaderId || null;
-                document.getElementById('leaderName').textContent = max.name || '—';
-                document.getElementById('leaderCount').textContent = max.votes || 0;
-                document.getElementById('leaderPct').textContent = ((max.votes/ (total||1))*100).toFixed(1) + '%';
-                document.getElementById('totalVotes').textContent = total + ' голосов';
-                // if leader changed, animate and celebrate
-                if(prevLeader && prevLeader !== max.id){
-                    try{ leaderEl.classList.add('leader-change'); setTimeout(()=>leaderEl.classList.remove('leader-change'), 1500); }catch(e){}
-                    if(window.celebrate) window.celebrate();
-                }
-                window.__leaderId = max.id;
-            }catch(e){}
-        }
-
-        // Attach AJAX handlers to vote/unvote forms (call after dynamic DOM updates)
-        function attachVoteHandlers(){
-            document.querySelectorAll('form[action*="/vote"], form[action*="/unvote"]').forEach(function(form){
-                // remove previous listener by cloning to avoid duplicate bindings
-                if(form.__attached) return; // already attached
-                form.__attached = true;
-                form.addEventListener('submit', function(e){
-                    e.preventDefault();
-                    var btn = form.querySelector('button[type="submit"]');
-                    if(btn){ btn.disabled = true; btn.classList.add('btn-pressed'); }
-                    // perform AJAX post with robust fallback: if server doesn't return JSON, reload while preserving focus/scroll
-                    fetch(form.action, { method: 'POST', body: new FormData(form), credentials: 'same-origin', headers: {'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json'} })
-                        .then(function(r){
-                            // attempt to parse JSON; if parsing fails, fallback
-                            return r.json().catch(function(){ return { __not_json: true, status: r.status }; });
-                        })
-                        .then(function(json){
-                            if(btn){ btn.disabled = false; btn.classList.remove('btn-pressed'); }
-                            if(json && json.__not_json){
-                                // fallback: preserve scroll and focus info then reload so server flash will show
-                                try{ sessionStorage.setItem('pending_scroll', String(window.scrollY || 0)); }catch(e){}
-                                try{ var m = form.action.match(/\/(?:vote|unvote)\/(\d+)/); if(m){ sessionStorage.setItem('pending_focus', 'candidate-' + m[1]); } }catch(e){}
-                                // reload to show server-side flash and ensure consistency
-                                location.reload();
-                                return;
-                            }
-                            if(json){
-                                if(json.message){ window.showToast(json.message, json.category || (json.ok ? 'success' : 'danger')); }
-                                else {
-                                    // Ensure important actions (like unvote) always notify the user
-                                    try{ if(form.action && form.action.indexOf('/unvote/') !== -1){ window.showToast('Ваш голос отменён', 'info'); } }catch(e){}
-                                }
-                                if(json.teachers){ updateFromServer(json); if(json.focus){ window.smoothFocus(json.focus); } }
-                            }
-                            // init tooltips for new buttons
-                            if(window.initTooltips) window.initTooltips();
-                        }).catch(function(err){
-                            if(btn){ btn.disabled = false; btn.classList.remove('btn-pressed'); }
-                            // network error: store state and reload to get server flash
-                            try{ sessionStorage.setItem('pending_scroll', String(window.scrollY || 0)); }catch(e){}
-                            try{ var m = form.action.match(/\/(?:vote|unvote)\/(\d+)/); if(m){ sessionStorage.setItem('pending_focus', 'candidate-' + m[1]); } }catch(e){}
-                            location.reload();
-                        });
-                });
-            });
-        }
-
-        document.addEventListener('DOMContentLoaded', function(){ attachVoteHandlers(); });
-
-        // update leader/top candidate and totals
-        const maxIndex = data.reduce((maxIdx, val, idx) => val > data[maxIdx] ? idx : maxIdx, 0);
-        const leaderName = labels[maxIndex] || '—';
-        const leaderCount = data[maxIndex] || 0;
-        const leaderPct = ((leaderCount / total) * 100).toFixed(1);
-        document.getElementById('leaderName').textContent = leaderName;
-        document.getElementById('leaderPct').textContent = leaderPct + '%';
-        document.getElementById('totalVotes').textContent = total + ' голосов';
-        // animate numeric counters
-        function animateValue(el, start, end, duration, formatter){
-            const node = document.getElementById(el);
-            if(!node) return;
-            const startTime = performance.now();
-            function step(now){
-                const progress = Math.min(1, (now - startTime) / duration);
-                const current = Math.round(start + (end - start) * progress);
-                node.textContent = formatter ? formatter(current) : current;
-                if(progress < 1) requestAnimationFrame(step);
-            }
-            requestAnimationFrame(step);
-        }
-        animateValue('totalVotesCount', 0, total, 900, (v)=>v+'');
-        animateValue('leaderCount', 0, leaderCount, 900, (v)=>v+'');
-        // animate leader percentage separately (one decimal)
-        (function(){
-            const el = document.getElementById('leaderPct');
-            if(!el) return;
-            const start = 0; const end = parseFloat(leaderPct);
-            const startTime = performance.now();
-            function step(now){
-                const progress = Math.min(1, (now - startTime)/900);
-                const cur = (start + (end - start) * progress).toFixed(1);
-                el.textContent = cur + '%';
-                if(progress < 1) requestAnimationFrame(step);
-            }
-            requestAnimationFrame(step);
-        })();
-        // set leader photo if available (try to find by matching name in teacher list DOM)
-        try{
-            const tNodes = document.querySelectorAll('.list-group-item');
-            for(const n of tNodes){
-                if(n.querySelector('.h4') && n.querySelector('.h4').textContent.trim().startsWith(leaderName.split(' ')[0])){
-                    const img = n.querySelector('.teacher-photo');
-                    if(img){ document.getElementById('leaderPhoto').innerHTML = `<img src="${img.src}" style="width:56px;height:56px;object-fit:cover;border-radius:8px">`; break; }
-                }
-            }
-        }catch(e){}
-
-        // --- small elegant donut chart at page bottom ---
-        try{
-            const smallCtx = document.getElementById('smallVotesChart');
-                if(smallCtx){
-                window.smallVotesChart = new Chart(smallCtx, {
-                    type: 'doughnut',
-                    data: { labels: labels, datasets: [{ data: data, backgroundColor: labels.map((_,i)=>colors[i%colors.length]), hoverOffset: 6 }] },
-                    options: {
-                        cutout: '75%',
-                        responsive: false,
-                        plugins: { legend: { display: false }, tooltip: { enabled: true } },
-                        animation: { animateRotate: true, duration: 900 }
-                    }
-                });
-                // put leader initials inside center (fallback to a number)
-                const center = document.querySelector('.small-donut + .center-label');
-                if(center) center.textContent = leaderName + ' • ' + leaderPct + '%';
-            }
-        }catch(e){ console.warn('Small chart failed', e); }
-    })();
-</script>
 {% endblock %}
