@@ -13,6 +13,7 @@
 </style>
 <h2>Редактировать номинацию</h2>
 <form method="POST">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}"/>
   <div class="mb-3">
     <label class="form-label">Название номинации</label>
     <input name="name" class="form-control" required value="{{ nomination.name }}">

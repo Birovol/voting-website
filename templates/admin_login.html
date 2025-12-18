@@ -2,6 +2,7 @@
 {% block content %}
 <h2> Вход в админку</h2>
 <form method="POST" autocomplete="off">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
     <!-- dummy fields to reduce browser autofill behavior -->
     <input type="text" name="fakeusernameremembered" style="display:none">
     <input type="password" name="fakepasswordremembered" style="display:none">

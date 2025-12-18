@@ -13,6 +13,7 @@
 </style>
 <h2>Настройки сайта</h2>
 <form method="POST" enctype="multipart/form-data">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
   <div class="mb-3">
     <label class="form-label">Заголовок сайта</label>
     <input name="site_title" class="form-control" value="{{ settings.get('site_title','') }}">

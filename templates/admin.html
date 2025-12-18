@@ -17,6 +17,7 @@
     <div class="col-md-5">
         <h3>Добавить номинацию</h3>
         <form method="POST" action="{{ url_for('admin_add_nomination') }}" enctype="multipart/form-data">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
             <div class="mb-3">
                 <label class="form-label">Название номинации</label>
                 <input class="form-control" name="name" required>
@@ -30,6 +31,7 @@
 
         <h3 class="mt-4">Добавить номинанта</h3>
         <form method="POST" action="{{ url_for('admin_add') }}" enctype="multipart/form-data">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
             <div class="mb-3">
                 <label class="form-label">Имя/Название</label>
                 <input class="form-control" name="name" required>
