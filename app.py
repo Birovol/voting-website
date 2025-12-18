@@ -11,6 +11,25 @@ from datetime import datetime, timedelta
 import logging
 import time
 import random
+from flask_wtf.csrf import CSRFProtect, generate_csrf
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+import bleach
+
+# Настройка санитизации
+def sanitize_text(text):
+    """Санитизация текста для предотвращения XSS"""
+    if not text:
+        return text
+    return bleach.clean(text, tags=[], attributes={}, strip=True)
+
+def sanitize_html(text):
+    """Санитизация HTML с разрешением базовых тегов"""
+    if not text:
+        return text
+    allowed_tags = ['p', 'br', 'strong', 'em', 'u', 'a']
+    allowed_attrs = {'a': ['href', 'title']}
+    return bleach.clean(text, tags=allowed_tags, attributes=allowed_attrs, strip=True)
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
@@ -30,6 +49,13 @@ app.secret_key = os.environ.get('FLASK_SECRET_KEY', os.urandom(24).hex())
 app.config["DATABASE"] = os.path.join(app.instance_path, "site.db")
 app.config['MAX_CONTENT_LENGTH'] = 8 * 1024 * 1024  # Ограничение загрузки 8MB
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=1)  # Время жизни сессии
+
+# Инициализация CSRF защиты
+csrf = CSRFProtect(app)
+
+# Инициализация лимитера
+limiter = Limiter(key_func=get_remote_address)
+limiter.init_app(app)
 
 # Загрузка конфигурации из переменных окружения
 ADMIN_USERNAME = os.environ.get('ADMIN_USERNAME', 'admin')
@@ -276,7 +302,7 @@ def inject_settings():
     lang = settings.get('language', 'ru') if settings else 'ru'
     def tr(key):
         return translations.get(lang, translations['ru']).get(key, key)
-    return dict(settings=settings, tr=tr)
+    return dict(settings=settings, tr=tr, csrf_token=generate_csrf)
 
 
 @app.route('/user_theme', methods=['POST'])
@@ -331,6 +357,7 @@ def index():
         return render_template('index.html', nominations=[], nomination_vote_status={}, settings=get_settings())
 
 @app.route("/vote/<int:nominee_id>", methods=["POST"])
+@limiter.limit("10 per minute")
 def vote(nominee_id):
     voter_id = request.cookies.get('voter_id')
     if not voter_id:
@@ -694,9 +721,9 @@ def admin_edit(nominee_id):
             return redirect(url_for('admin_panel'))
 
     if request.method == 'POST':
-        name = request.form.get('name', '').strip()
-        category = request.form.get('category', '').strip()
-        desc = request.form.get('description', '').strip()
+        name = sanitize_text(request.form.get('name', '').strip())
+        category = sanitize_text(request.form.get('category', '').strip())
+        desc = sanitize_html(request.form.get('description', '').strip())
         photo_file = request.files.get('photo')
         photo_filename = nominee['photo']
         if photo_file and photo_file.filename:
@@ -774,8 +801,8 @@ def admin_add():
 @app.route("/admin/add_nomination", methods=["POST"])
 @admin_required
 def admin_add_nomination():
-    name = request.form.get("name").strip()
-    description = request.form.get("description", "").strip()
+    name = sanitize_text(request.form.get("name", "").strip())
+    description = sanitize_html(request.form.get("description", "").strip())
     if name:
         with get_db() as db:
             db.execute(
@@ -786,6 +813,29 @@ def admin_add_nomination():
     else:
         flash("Название номинации обязательно", "danger")
     return redirect(url_for("admin_panel"))
+
+@app.route('/admin/edit_nomination/<int:nomination_id>', methods=['GET', 'POST'])
+@admin_required
+def admin_edit_nomination(nomination_id):
+    with get_db() as db:
+        cur = db.execute('SELECT * FROM nominations WHERE id = ?', (nomination_id,))
+        nomination = cur.fetchone()
+        if not nomination:
+            flash('Номинация не найдена', 'danger')
+            return redirect(url_for('admin_panel'))
+
+    if request.method == 'POST':
+        name = request.form.get('name', '').strip()
+        description = request.form.get('description', '').strip()
+        if name:
+            with get_db() as db:
+                db.execute('UPDATE nominations SET name=?, description=? WHERE id=?', (name, description, nomination_id))
+            flash('Номинация обновлена', 'success')
+            return redirect(url_for('admin_panel'))
+        else:
+            flash('Название номинации обязательно', 'danger')
+
+    return render_template('admin_edit_nomination.html', nomination=nomination)
 
 @app.route("/admin/delete_nomination/<int:nomination_id>")
 @admin_required

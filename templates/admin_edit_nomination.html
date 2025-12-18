@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+    body { color: #000 !important; }
+    .text-muted { color: #666 !important; }
+    .card { background: #fff !important; color: #000 !important; }
+    .list-group-item { background: #fff !important; color: #000 !important; }
+    .alert { color: #000 !important; }
+    .btn { color: #000 !important; }
+    .form-control { color: #000 !important; background: #fff !important; border-color: #ccc !important; }
+    .navbar { background: #fff !important; color: #000 !important; }
+    .navbar .navbar-brand, .navbar .nav-link { color: #000 !important; }
+</style>
+<h2>Редактировать номинацию</h2>
+<form method="POST">
+  <div class="mb-3">
+    <label class="form-label">Название номинации</label>
+    <input name="name" class="form-control" required value="{{ nomination.name }}">
+  </div>
+  <div class="mb-3">
+    <label class="form-label">Описание</label>
+    <textarea name="description" class="form-control" rows="4">{{ nomination.description }}</textarea>
+  </div>
+  <button class="btn btn-primary">Сохранить</button>
+  <a class="btn btn-secondary ms-2" href="{{ url_for('admin_panel') }}">Отмена</a>
+</form>
+{% endblock %}
