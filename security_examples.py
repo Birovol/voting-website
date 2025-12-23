@@ -197,7 +197,7 @@ def admin_login():
         # Get admin credentials from DB
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT value FROM settings WHERE key_name = %s", ('admin_password_hash',))
+        cursor.execute("SELECT value FROM settings WHERE key_name = ?", ('admin_password_hash',))
         result = cursor.fetchone()
         cursor.close()
         conn.close()
@@ -239,7 +239,7 @@ def vote(election_id, nominee_id):
         # Check if election exists and is active
         cursor.execute("""
             SELECT id, start_date, end_date FROM elections
-            WHERE id = %s AND start_date <= NOW() AND end_date >= NOW()
+            WHERE id = ? AND start_date <= NOW() AND end_date >= NOW()
         """, (election_id,))
         election = cursor.fetchone()
         if not election:
@@ -248,7 +248,7 @@ def vote(election_id, nominee_id):
 
         # Check if nominee exists in this election
         cursor.execute("""
-            SELECT id FROM nominees WHERE id = %s AND election_id = %s
+            SELECT id FROM nominees WHERE id = ? AND election_id = ?
         """, (nominee_id, election_id))
         if not cursor.fetchone():
             flash('Nominee not found', 'danger')
@@ -256,7 +256,7 @@ def vote(election_id, nominee_id):
 
         # Check for existing vote (duplicate prevention)
         cursor.execute("""
-            SELECT id FROM votes WHERE voter_id = %s AND election_id = %s
+            SELECT id FROM votes WHERE voter_id = ? AND election_id = ?
         """, (voter_id, election_id))
         existing_vote = cursor.fetchone()
 
@@ -266,12 +266,12 @@ def vote(election_id, nominee_id):
             # Insert vote using prepared statement
             cursor.execute("""
                 INSERT INTO votes (voter_id, election_id, nominee_id, ip_address, user_agent, csrf_token)
-                VALUES (%s, %s, %s, %s, %s, %s)
+                VALUES (?, ?, ?, ?, ?, ?)
             """, (voter_id, election_id, nominee_id, ip_address, user_agent, csrf_token))
 
             # Update vote count
             cursor.execute("""
-                UPDATE nominees SET votes_count = votes_count + 1 WHERE id = %s
+                UPDATE nominees SET votes_count = votes_count + 1 WHERE id = ?
             """, (nominee_id,))
 
             conn.commit()
@@ -299,7 +299,7 @@ def election_detail(election_id):
 
     try:
         # Get election details
-        cursor.execute("SELECT * FROM elections WHERE id = %s", (election_id,))
+        cursor.execute("SELECT * FROM elections WHERE id = ?", (election_id,))
         election = cursor.fetchone()
 
         if not election:
@@ -308,7 +308,7 @@ def election_detail(election_id):
 
         # Get nominees
         cursor.execute("""
-            SELECT * FROM nominees WHERE election_id = %s ORDER BY votes_count DESC
+            SELECT * FROM nominees WHERE election_id = ? ORDER BY votes_count DESC
         """, (election_id,))
         nominees = cursor.fetchall()
 
@@ -317,7 +317,7 @@ def election_detail(election_id):
         has_voted = False
         if voter_id:
             cursor.execute("""
-                SELECT id FROM votes WHERE voter_id = %s AND election_id = %s
+                SELECT id FROM votes WHERE voter_id = ? AND election_id = ?
             """, (voter_id, election_id))
             has_voted = bool(cursor.fetchone())
 

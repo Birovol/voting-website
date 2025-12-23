@@ -15,7 +15,10 @@ from flask_wtf.csrf import CSRFProtect, generate_csrf
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 import bleach
-import bcrypt
+from argon2 import PasswordHasher
+
+# Инициализация хешера паролей Argon2
+ph = PasswordHasher()
 
 # Настройка санитизации
 def sanitize_text(text):
@@ -60,7 +63,7 @@ limiter.init_app(app)
 
 # Загрузка конфигурации из переменных окружения
 ADMIN_USERNAME = os.environ.get('ADMIN_USERNAME', 'admin')
-ADMIN_PASSWORD_HASH = os.environ.get('ADMIN_PASSWORD_HASH', bcrypt.hashpw('admin'.encode('utf-8'), bcrypt.gensalt()).decode('utf-8'))
+ADMIN_PASSWORD_HASH = os.environ.get('ADMIN_PASSWORD_HASH', ph.hash('admin'))
 # По умолчанию логин: admin, пароль: admin
 
 # Допустимые расширения файлов
@@ -167,7 +170,7 @@ def init_db():
                 )
             """)
             # Seed default settings
-            cur = db.execute("SELECT 1 FROM settings WHERE key = 'site_title'")
+            cur = db.execute("SELECT 1 FROM settings WHERE key = ?", ('site_title',))
             if not cur.fetchone():
                 db.execute("INSERT INTO settings (key, value) VALUES (?, ?)", ("site_title", "Голосование за Оскар"))
                 db.execute("INSERT INTO settings (key, value) VALUES (?, ?)", ("banner_text", "Оскар 2025 — голосуем за лучшее!") )
@@ -317,7 +320,7 @@ def user_theme():
     if theme not in ('light', 'dark'):
         return jsonify({'ok': False, 'error': 'invalid theme'}), 400
     resp = jsonify({'ok': True, 'theme': theme})
-    resp.set_cookie('theme', theme, max_age=60*60*24*365)
+    resp.set_cookie('theme', theme, max_age=60*60*24*365, httponly=True, secure=True, samesite='Strict')
     return resp
 
 
@@ -362,10 +365,29 @@ def index():
 @app.route("/vote/<int:nominee_id>", methods=["POST"])
 @limiter.limit("10 per minute")
 def vote(nominee_id):
+    # Backend validation: nominee_id must be positive integer
+    if nominee_id <= 0:
+        flash('Недействительный ID номинанта.', 'danger')
+        return redirect(url_for('index'))
+
     voter_id = request.cookies.get('voter_id')
     vote_token = request.form.get('vote_token')
     user_agent = request.headers.get('User-Agent', 'Unknown')
     ip = request.remote_addr
+
+    # Backend validation: IP and User-Agent must be present
+    if not ip or not user_agent:
+        flash('Недействительные данные запроса.', 'danger')
+        return redirect(url_for('index'))
+
+    # Backend validation: voter_id must be valid hex if present
+    if voter_id and len(voter_id) != 32:
+        try:
+            int(voter_id, 16)
+        except ValueError:
+            flash('Недействительный ID голосующего.', 'danger')
+            return redirect(url_for('index'))
+
     if not voter_id:
         voter_id = secrets.token_hex(16)
 
@@ -477,7 +499,7 @@ def vote(nominee_id):
     if ajax:
         from flask import jsonify
         resp = jsonify({'ok': bool(ok), 'message': msg or 'Действие выполнено.', 'category': category, 'nominees': nominees_list, 'my_vote': my_vote, 'focus': f'nominee-{nominee_id}'})
-        resp.set_cookie('voter_id', voter_id, max_age=60*60*24*365, httponly=True, samesite='Lax')
+        resp.set_cookie('voter_id', voter_id, max_age=60*60*24*365, httponly=True, secure=True, samesite='Strict')
         return resp
     # fallback for normal form submit: redirect back to index with focus param
     redirect_url = url_for("index") + f"?focus=nominee-{nominee_id}"
@@ -516,10 +538,28 @@ def nomination_detail(nomination_id):
 
 @app.route('/unvote/<int:nominee_id>', methods=['POST'])
 def unvote(nominee_id):
+    # Backend validation: nominee_id must be positive integer
+    if nominee_id <= 0:
+        flash('Недействительный ID номинанта.', 'danger')
+        return redirect(url_for('index'))
+
     voter_id = request.cookies.get('voter_id')
     vote_token = request.form.get('vote_token')
     user_agent = request.headers.get('User-Agent', 'Unknown')
     ip = request.remote_addr
+
+    # Backend validation: IP and User-Agent must be present
+    if not ip or not user_agent:
+        flash('Недействительные данные запроса.', 'danger')
+        return redirect(url_for('index'))
+
+    # Backend validation: voter_id must be valid hex if present
+    if voter_id and len(voter_id) != 32:
+        try:
+            int(voter_id, 16)
+        except ValueError:
+            flash('Недействительный ID голосующего.', 'danger')
+            return redirect(url_for('index'))
 
     msg = None
     category = 'info'
@@ -615,11 +655,11 @@ def unvote(nominee_id):
     if ajax:
         from flask import jsonify
         resp = jsonify({'ok': bool(ok), 'message': msg or 'Действие выполнено.', 'category': category, 'nominees': nominees_list, 'my_vote': my_vote, 'focus': f'nominee-{nominee_id}'})
-        resp.set_cookie('voter_id', voter_id, max_age=60*60*24*365, httponly=True, samesite='Lax')
+        resp.set_cookie('voter_id', voter_id, max_age=60*60*24*365, httponly=True, secure=True, samesite='Strict')
         return resp
     redirect_url = url_for('index') + f"?focus=nominee-{nominee_id}"
     resp = make_response(redirect(redirect_url))
-    resp.set_cookie('voter_id', voter_id, max_age=60*60*24*365, httponly=True, samesite='Lax')
+    resp.set_cookie('voter_id', voter_id, max_age=60*60*24*365, httponly=True, secure=True, samesite='Strict')
     return resp
     
 
@@ -629,12 +669,14 @@ def admin_login():
         username = request.form.get("username")
         password = request.form.get("password")
         logger.info(f"Login attempt: username={username}, password provided")
-        if username == ADMIN_USERNAME and bcrypt.checkpw(password.encode('utf-8'), ADMIN_PASSWORD_HASH.encode('utf-8')):
-            session["admin_logged_in"] = True
-            return redirect(url_for("admin_panel"))
-        else:
-            logger.info(f"Login failed: expected username={ADMIN_USERNAME}")
-            flash("Неверный логин или пароль", "danger")
+        try:
+            if username == ADMIN_USERNAME and ph.verify(ADMIN_PASSWORD_HASH, password):
+                session["admin_logged_in"] = True
+                return redirect(url_for("admin_panel"))
+        except Exception:
+            pass
+        logger.info(f"Login failed: expected username={ADMIN_USERNAME}")
+        flash("Неверный логин или пароль", "danger")
     return render_template("admin_login.html")
 
 @app.route("/admin/logout")
