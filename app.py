@@ -15,6 +15,7 @@ from flask_wtf.csrf import CSRFProtect, generate_csrf
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 import bleach
+import bcrypt
 
 # Настройка санитизации
 def sanitize_text(text):
@@ -59,7 +60,7 @@ limiter.init_app(app)
 
 # Загрузка конфигурации из переменных окружения
 ADMIN_USERNAME = os.environ.get('ADMIN_USERNAME', 'admin')
-ADMIN_PASSWORD_HASH = os.environ.get('ADMIN_PASSWORD_HASH', generate_password_hash('admin'))
+ADMIN_PASSWORD_HASH = os.environ.get('ADMIN_PASSWORD_HASH', bcrypt.hashpw('admin'.encode('utf-8'), bcrypt.gensalt()).decode('utf-8'))
 # По умолчанию логин: admin, пароль: admin
 
 # Допустимые расширения файлов
@@ -189,7 +190,9 @@ def init_db():
                     nominee_id INTEGER,
                     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
                     voter_id TEXT,
-                    nomination_id INTEGER
+                    nomination_id INTEGER,
+                    user_agent TEXT,
+                    nonce TEXT
                 )
             """)
             # Add indexes
@@ -198,7 +201,7 @@ def init_db():
             # Drop old index if exists and create new unique index
             db.execute("DROP INDEX IF EXISTS idx_votes_voter_nomination")
             db.execute("DROP INDEX IF EXISTS idx_votes_voter")
-            db.execute("CREATE UNIQUE INDEX idx_votes_voter_nomination ON votes(voter_id, nomination_id)")
+            db.execute("CREATE UNIQUE INDEX idx_votes_ip_ua_nomination_nonce ON votes(ip, user_agent, nomination_id, nonce)")
             db.execute("CREATE INDEX IF NOT EXISTS idx_votes_ip_nomination ON votes(ip, nomination_id)")
                 
             # Создаем триггер для обновления поля updated_at
@@ -360,6 +363,9 @@ def index():
 @limiter.limit("10 per minute")
 def vote(nominee_id):
     voter_id = request.cookies.get('voter_id')
+    vote_token = request.form.get('vote_token')
+    user_agent = request.headers.get('User-Agent', 'Unknown')
+    ip = request.remote_addr
     if not voter_id:
         voter_id = secrets.token_hex(16)
 
@@ -377,42 +383,76 @@ def vote(nominee_id):
         else:
             nomination_id = nominee_info['nomination_id']
 
-            # Check if this voter already has a vote in this nomination
-            existing = db.execute("SELECT nominee_id FROM votes WHERE voter_id = ? AND nomination_id = ?", (voter_id, nomination_id)).fetchone()
-
-            if existing:
-                old_nid = existing['nominee_id']
-                if old_nid == nominee_id:
-                    msg = "Вы уже голосовали за этого номинанта."
-                    category = 'warning'
-                    ok = False
+            # Check vote_token validity
+            expected_token = session.get(f'vote_token_{nomination_id}')
+            if not vote_token or vote_token != expected_token:
+                msg = "Недействительный токен голосования."
+                category = 'danger'
+                ok = False
+            else:
+                # Check min timeout: 30s between votes per IP
+                last_vote_time = db.execute("SELECT MAX(timestamp) FROM votes WHERE ip = ?", (ip,)).fetchone()[0]
+                if last_vote_time:
+                    last_vote_dt = datetime.fromisoformat(last_vote_time)
+                    if (datetime.now() - last_vote_dt).total_seconds() < 30:
+                        msg = "Слишком частые голосования. Подождите 30 секунд."
+                        category = 'warning'
+                        ok = False
+                    else:
+                        ok = True
                 else:
-                    # Change vote within the same nomination: decrement old nominee, update vote, increment new nominee
-                    db.execute("UPDATE nominees SET votes = CASE WHEN votes > 0 THEN votes - 1 ELSE 0 END WHERE id = ?", (old_nid,))
-                    db.execute("UPDATE votes SET nominee_id = ?, timestamp = CURRENT_TIMESTAMP WHERE voter_id = ? AND nomination_id = ?", (nominee_id, voter_id, nomination_id))
-                    db.execute("UPDATE nominees SET votes = votes + 1 WHERE id = ?", (nominee_id,))
-                    msg = "Ваш голос изменён."
-                    category = 'success'
                     ok = True
 
-                    # Логирование изменения голосования
-                    nominee_info = db.execute("SELECT name FROM nominees WHERE id = ?", (nominee_id,)).fetchone()
-                    nominee_name = nominee_info['name'] if nominee_info else 'Unknown'
-                    user_agent = request.headers.get('User-Agent', 'Unknown')
-                    vote_logger.info(f"Vote Change: Nominee={nominee_name}, IP={request.remote_addr}, Browser/Device={user_agent}")
-            else:
-                # New vote: insert
-                db.execute("UPDATE nominees SET votes = votes + 1 WHERE id = ?", (nominee_id,))
-                db.execute("INSERT INTO votes (ip, nominee_id, voter_id, nomination_id) VALUES (?, ?, ?, ?)", (request.remote_addr, nominee_id, voter_id, nomination_id))
-                msg = "Ваш голос учтён!"
-                category = 'success'
-                ok = True
+                # Anomaly detection: >5 votes per IP in 1min
+                one_min_ago = (datetime.now() - timedelta(minutes=1)).isoformat()
+                recent_votes = db.execute("SELECT COUNT(*) FROM votes WHERE ip = ? AND timestamp > ?", (ip, one_min_ago)).fetchone()[0]
+                if recent_votes >= 5:
+                    msg = "Обнаружена подозрительная активность. Голосование заблокировано."
+                    category = 'danger'
+                    ok = False
 
-                # Логирование голосования
-                nominee_info = db.execute("SELECT name FROM nominees WHERE id = ?", (nominee_id,)).fetchone()
-                nominee_name = nominee_info['name'] if nominee_info else 'Unknown'
-                user_agent = request.headers.get('User-Agent', 'Unknown')
-                vote_logger.info(f"Vote: Nominee={nominee_name}, IP={request.remote_addr}, Browser/Device={user_agent}")
+                if ok:
+                    # Check if this IP+UA+nonce already has a vote in this nomination
+                    nonce = session.get(f'nonce_{nomination_id}')
+                    existing = db.execute("SELECT nominee_id FROM votes WHERE ip = ? AND user_agent = ? AND nomination_id = ? AND nonce = ?", (ip, user_agent, nomination_id, nonce)).fetchone()
+
+                    if existing:
+                        old_nid = existing['nominee_id']
+                        if old_nid == nominee_id:
+                            msg = "Вы уже голосовали за этого номинанта."
+                            category = 'warning'
+                            ok = False
+                        else:
+                            # Change vote within the same nomination: decrement old nominee, update vote, increment new nominee
+                            db.execute("UPDATE nominees SET votes = CASE WHEN votes > 0 THEN votes - 1 ELSE 0 END WHERE id = ?", (old_nid,))
+                            db.execute("UPDATE votes SET nominee_id = ?, timestamp = CURRENT_TIMESTAMP WHERE ip = ? AND user_agent = ? AND nomination_id = ? AND nonce = ?", (nominee_id, ip, user_agent, nomination_id, nonce))
+                            db.execute("UPDATE nominees SET votes = votes + 1 WHERE id = ?", (nominee_id,))
+                            msg = "Ваш голос изменён."
+                            category = 'success'
+                            ok = True
+
+                            # Логирование изменения голосования
+                            nominee_info = db.execute("SELECT name FROM nominees WHERE id = ?", (nominee_id,)).fetchone()
+                            nominee_name = nominee_info['name'] if nominee_info else 'Unknown'
+                            vote_logger.info(f"Vote Change: Nominee={nominee_name}, IP={ip}, Browser/Device={user_agent}")
+                            # Clear the used token
+                            session.pop(f'vote_token_{nomination_id}', None)
+                            session.pop(f'nonce_{nomination_id}', None)
+                    else:
+                        # New vote: insert
+                        db.execute("UPDATE nominees SET votes = votes + 1 WHERE id = ?", (nominee_id,))
+                        db.execute("INSERT INTO votes (ip, nominee_id, voter_id, nomination_id, user_agent, nonce) VALUES (?, ?, ?, ?, ?, ?)", (ip, nominee_id, voter_id, nomination_id, user_agent, nonce))
+                        msg = "Ваш голос учтён!"
+                        category = 'success'
+                        ok = True
+
+                        # Логирование голосования
+                        nominee_info = db.execute("SELECT name FROM nominees WHERE id = ?", (nominee_id,)).fetchone()
+                        nominee_name = nominee_info['name'] if nominee_info else 'Unknown'
+                        vote_logger.info(f"Vote: Nominee={nominee_name}, IP={ip}, Browser/Device={user_agent}")
+                        # Clear the used token
+                        session.pop(f'vote_token_{nomination_id}', None)
+                        session.pop(f'nonce_{nomination_id}', None)
     # If this looks like an XHR/fetch request, return JSON with updated counts
     # POST requests from forms are never treated as AJAX
     ajax = request.method == 'GET' and request.headers.get('X-Requested-With') == 'XMLHttpRequest'
@@ -463,7 +503,12 @@ def nomination_detail(nomination_id):
                 vr = db.execute("SELECT nominee_id FROM votes WHERE voter_id = ? AND nomination_id = ?", (voter_id, nomination_id)).fetchone()
                 if vr:
                     my_vote = vr['nominee_id']
-        return render_template("nomination.html", nomination=nomination, nominees=nominees, my_vote=my_vote)
+            # Generate vote_token for this nomination page load
+            vote_token = secrets.token_hex(16)
+            nonce = str(int(time.time()))  # timestamp as nonce
+            session[f'vote_token_{nomination_id}'] = vote_token
+            session[f'nonce_{nomination_id}'] = nonce
+        return render_template("nomination.html", nomination=nomination, nominees=nominees, my_vote=my_vote, vote_token=vote_token)
     except Exception as e:
         app.logger.exception('Error rendering nomination: %s', e)
         flash('Произошла ошибка при отображении номинации.', 'danger')
@@ -472,6 +517,10 @@ def nomination_detail(nomination_id):
 @app.route('/unvote/<int:nominee_id>', methods=['POST'])
 def unvote(nominee_id):
     voter_id = request.cookies.get('voter_id')
+    vote_token = request.form.get('vote_token')
+    user_agent = request.headers.get('User-Agent', 'Unknown')
+    ip = request.remote_addr
+
     msg = None
     category = 'info'
     ok = False
@@ -493,28 +542,53 @@ def unvote(nominee_id):
                 ok = False
             else:
                 nomination_id = nominee_info['nomination_id']
-                row = db.execute('SELECT nominee_id FROM votes WHERE voter_id = ? AND nomination_id = ?', (voter_id, nomination_id)).fetchone()
-                if not row:
-                    msg = 'Вы ещё не голосовали в этой номинации.'
-                    category = 'warning'
+
+                # Check vote_token validity
+                expected_token = session.get(f'vote_token_{nomination_id}')
+                if not vote_token or vote_token != expected_token:
+                    msg = "Недействительный токен голосования."
+                    category = 'danger'
                     ok = False
                 else:
-                    if row['nominee_id'] != nominee_id:
-                        msg = 'Нельзя отменить голос за другого номинанта.'
-                        category = 'warning'
-                        ok = False
+                    # Check min timeout: 30s between votes per IP
+                    last_vote_time = db.execute("SELECT MAX(timestamp) FROM votes WHERE ip = ?", (ip,)).fetchone()[0]
+                    if last_vote_time:
+                        last_vote_dt = datetime.fromisoformat(last_vote_time)
+                        if (datetime.now() - last_vote_dt).total_seconds() < 30:
+                            msg = "Слишком частые голосования. Подождите 30 секунд."
+                            category = 'warning'
+                            ok = False
+                        else:
+                            ok = True
                     else:
-                        db.execute('DELETE FROM votes WHERE voter_id = ? AND nomination_id = ?', (voter_id, nomination_id))
-                        db.execute('UPDATE nominees SET votes = CASE WHEN votes > 0 THEN votes - 1 ELSE 0 END WHERE id = ?', (nominee_id,))
-                        msg = 'Ваш голос отменён.'
-                        category = 'info'
                         ok = True
 
-                        # Логирование отмены голосования
-                        nominee_info = db.execute("SELECT name FROM nominees WHERE id = ?", (nominee_id,)).fetchone()
-                        nominee_name = nominee_info['name'] if nominee_info else 'Unknown'
-                        user_agent = request.headers.get('User-Agent', 'Unknown')
-                        vote_logger.info(f"Unvote: Nominee={nominee_name}, IP={request.remote_addr}, Browser/Device={user_agent}")
+                    if ok:
+                        row = db.execute('SELECT nominee_id FROM votes WHERE ip = ? AND user_agent = ? AND nomination_id = ? AND nonce = ?', (ip, user_agent, nomination_id, session.get(f'nonce_{nomination_id}'))).fetchone()
+                        if not row:
+                            msg = 'Вы ещё не голосовали в этой номинации.'
+                            category = 'warning'
+                            ok = False
+                        else:
+                            if row['nominee_id'] != nominee_id:
+                                msg = 'Нельзя отменить голос за другого номинанта.'
+                                category = 'warning'
+                                ok = False
+                            else:
+                                db.execute('DELETE FROM votes WHERE ip = ? AND user_agent = ? AND nomination_id = ? AND nonce = ?', (ip, user_agent, nomination_id, session.get(f'nonce_{nomination_id}')))
+                                db.execute('UPDATE nominees SET votes = CASE WHEN votes > 0 THEN votes - 1 ELSE 0 END WHERE id = ?', (nominee_id,))
+                                msg = 'Ваш голос отменён.'
+                                category = 'info'
+                                ok = True
+
+                                # Логирование отмены голосования
+                                nominee_info = db.execute("SELECT name FROM nominees WHERE id = ?", (nominee_id,)).fetchone()
+                                nominee_name = nominee_info['name'] if nominee_info else 'Unknown'
+                                vote_logger.info(f"Unvote: Nominee={nominee_name}, IP={ip}, Browser/Device={user_agent}")
+
+                                # Clear the used token
+                                session.pop(f'vote_token_{nomination_id}', None)
+                                session.pop(f'nonce_{nomination_id}', None)
     # Support AJAX responses
     ajax = request.method == 'GET' and request.headers.get('X-Requested-With') == 'XMLHttpRequest'
     # Force redirect for POST requests (form submissions)
@@ -555,7 +629,7 @@ def admin_login():
         username = request.form.get("username")
         password = request.form.get("password")
         logger.info(f"Login attempt: username={username}, password provided")
-        if username == ADMIN_USERNAME and check_password_hash(ADMIN_PASSWORD_HASH, password):
+        if username == ADMIN_USERNAME and bcrypt.checkpw(password.encode('utf-8'), ADMIN_PASSWORD_HASH.encode('utf-8')):
             session["admin_logged_in"] = True
             return redirect(url_for("admin_panel"))
         else:

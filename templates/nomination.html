@@ -44,6 +44,7 @@
                             <div class="mt-4 pt-2 border-top">
                                 <form method="POST" action="{{ url_for('vote', nominee_id=nominee.id) }}" class="d-inline">
                                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                                    <input type="hidden" name="vote_token" value="{{ vote_token }}"/>
                                     <button type="submit" class="btn btn-primary btn-hover-zoom w-100 d-flex align-items-center justify-content-between {% if my_vote == nominee.id %}disabled{% endif %}">
                                         <span>{% if my_vote == nominee.id %}Уже проголосовали{% else %}Проголосовать{% endif %}</span>
                                         <i class="bi bi-check-circle ms-2"></i>
@@ -52,6 +53,7 @@
                                 {% if my_vote == nominee.id %}
                                     <form method="POST" action="{{ url_for('unvote', nominee_id=nominee.id) }}" class="mt-2">
                                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                                        <input type="hidden" name="vote_token" value="{{ vote_token }}"/>
                                         <button type="submit" class="btn btn-outline-danger btn-sm w-100">
                                             <i class="bi bi-x-circle me-1"></i>Отменить голос
                                         </button>
