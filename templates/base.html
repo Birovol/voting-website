@@ -289,44 +289,7 @@
     <canvas id="confetti-canvas" class="confetti-canvas"></canvas>
     <!-- side confetti triggers are automatic and visual cannons removed per preference -->
     <script>
-      // Show festive modal on first visit
       document.addEventListener('DOMContentLoaded', function(){
-        // Show the modal once per browser session (only on entry)
-        var showModal = !sessionStorage.getItem('seen2025');
-        if(showModal){
-          var modalHtml = `
-            <div class="modal fade" id="gradModal" tabindex="-1">
-              <div class="modal-dialog modal-fullscreen">
-                <div class="modal-content text-white" style="background: linear-gradient(135deg,#ff6b6b,#ffb3a7); border: none;">
-                  <div class="modal-body d-flex flex-column justify-content-center align-items-center" style="min-height:100vh;">
-                    <h1 style="font-size: clamp(28px, 6vw, 64px);">🎉 Выпускной 2025 🎓</h1>
-                    <p style="font-size: clamp(16px, 2.5vw, 22px); max-width: 900px; text-align:center;">Поздравляем наших выпускников! Присоединяйтесь к празднику и проголосуйте за лучшего учителя.</p>
-                    <div class="mt-4"><button type="button" class="btn btn-light btn-lg" data-bs-dismiss="modal">Продолжить</button></div>
-                  </div>
-                </div>
-              </div>
-            </div>`;
-          document.body.insertAdjacentHTML('beforeend', modalHtml);
-          var modalEl = new bootstrap.Modal(document.getElementById('gradModal'));
-          modalEl.show();
-          // mark shown for this session so it won't reappear when navigating within site
-          sessionStorage.setItem('seen2025', '1');
-            // fire confetti — smaller, prettier particles
-          var confettiFn = confetti || window.confetti;
-            confettiFn.create(document.getElementById('confetti-canvas'), { resize: true })({ particleCount: 120, spread: 140, origin: { y: 0.6 }, scalar: 0.6 });
-          // gentle second burst
-          setTimeout(function(){ confettiFn.create(document.getElementById('confetti-canvas'), { resize: true })({ particleCount: 80, spread: 110, origin: { y: 0.35 }, scalar: 0.55 }); }, 900);
-          // side confetti function (no visible cannons) — fired on modal open and success
-          function fireSideConfetti(){
-            try{
-              var fn = confetti || window.confetti;
-              fn({ particleCount: 80, angle: 110, spread: 50, origin: { x: 0.02, y: 0.5 }, scalar: 0.6 });
-              fn({ particleCount: 80, angle: 70, spread: 50, origin: { x: 0.98, y: 0.5 }, scalar: 0.6 });
-            }catch(e){}
-          }
-          // call side confetti when modal opens
-          fireSideConfetti();
-        }
 
         // Celebration helpers: spawn balloons and provide a single entrypoint for celebrations
         window.__celebrationEnabled = {{ 'false' if settings.get('disable_confetti','0') == '1' else 'true' }};

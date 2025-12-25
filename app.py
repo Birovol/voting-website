@@ -274,7 +274,8 @@ def init_db():
             # Drop old index if exists and create new unique index
             db.execute("DROP INDEX IF EXISTS idx_votes_voter_nomination")
             db.execute("DROP INDEX IF EXISTS idx_votes_voter")
-            db.execute("CREATE UNIQUE INDEX idx_votes_ip_ua_nomination_nonce ON votes(ip, user_agent, nomination_id, nonce)")
+            db.execute("DROP INDEX IF EXISTS idx_votes_ip_ua_nomination_nonce")
+            db.execute("CREATE UNIQUE INDEX idx_votes_ip_ua_nomination ON votes(ip, user_agent, nomination_id)")
             db.execute("CREATE INDEX IF NOT EXISTS idx_votes_ip_nomination ON votes(ip, nomination_id)")
                 
             # Создаем триггер для обновления поля updated_at
@@ -503,9 +504,8 @@ def vote(nominee_id):
                     ok = False
 
                 if ok:
-                    # Check if this IP+UA+nonce already has a vote in this nomination
-                    nonce = session.get(f'nonce_{nomination_id}')
-                    existing = db.execute("SELECT nominee_id FROM votes WHERE ip = ? AND user_agent = ? AND nomination_id = ? AND nonce = ?", (ip, user_agent, nomination_id, nonce)).fetchone()
+                    # Check if this IP+UA already has a vote in this nomination
+                    existing = db.execute("SELECT nominee_id FROM votes WHERE ip = ? AND user_agent = ? AND nomination_id = ?", (ip, user_agent, nomination_id)).fetchone()
 
                     if existing:
                         old_nid = existing['nominee_id']
@@ -516,7 +516,7 @@ def vote(nominee_id):
                         else:
                             # Change vote within the same nomination: decrement old nominee, update vote, increment new nominee
                             db.execute("UPDATE nominees SET votes = CASE WHEN votes > 0 THEN votes - 1 ELSE 0 END WHERE id = ?", (old_nid,))
-                            db.execute("UPDATE votes SET nominee_id = ?, timestamp = CURRENT_TIMESTAMP WHERE ip = ? AND user_agent = ? AND nomination_id = ? AND nonce = ?", (nominee_id, ip, user_agent, nomination_id, nonce))
+                            db.execute("UPDATE votes SET nominee_id = ?, timestamp = CURRENT_TIMESTAMP WHERE ip = ? AND user_agent = ? AND nomination_id = ?", (nominee_id, ip, user_agent, nomination_id))
                             db.execute("UPDATE nominees SET votes = votes + 1 WHERE id = ?", (nominee_id,))
                             msg = "Ваш голос изменён."
                             category = 'success'
@@ -531,6 +531,7 @@ def vote(nominee_id):
                             session.pop(f'nonce_{nomination_id}', None)
                     else:
                         # New vote: insert
+                        nonce = session.get(f'nonce_{nomination_id}')
                         db.execute("UPDATE nominees SET votes = votes + 1 WHERE id = ?", (nominee_id,))
                         db.execute("INSERT INTO votes (ip, nominee_id, voter_id, nomination_id, user_agent, nonce) VALUES (?, ?, ?, ?, ?, ?)", (ip, nominee_id, voter_id, nomination_id, user_agent, nonce))
                         msg = "Ваш голос учтён!"
@@ -673,7 +674,7 @@ def unvote(nominee_id):
                         ok = True
 
                     if ok:
-                        row = db.execute('SELECT nominee_id FROM votes WHERE ip = ? AND user_agent = ? AND nomination_id = ? AND nonce = ?', (ip, user_agent, nomination_id, session.get(f'nonce_{nomination_id}'))).fetchone()
+                        row = db.execute('SELECT nominee_id FROM votes WHERE ip = ? AND user_agent = ? AND nomination_id = ?', (ip, user_agent, nomination_id)).fetchone()
                         if not row:
                             msg = 'Вы ещё не голосовали в этой номинации.'
                             category = 'warning'
@@ -684,7 +685,7 @@ def unvote(nominee_id):
                                 category = 'warning'
                                 ok = False
                             else:
-                                db.execute('DELETE FROM votes WHERE ip = ? AND user_agent = ? AND nomination_id = ? AND nonce = ?', (ip, user_agent, nomination_id, session.get(f'nonce_{nomination_id}')))
+                                db.execute('DELETE FROM votes WHERE ip = ? AND user_agent = ? AND nomination_id = ?', (ip, user_agent, nomination_id))
                                 db.execute('UPDATE nominees SET votes = CASE WHEN votes > 0 THEN votes - 1 ELSE 0 END WHERE id = ?', (nominee_id,))
                                 msg = 'Ваш голос отменён.'
                                 category = 'info'
