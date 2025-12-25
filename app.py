@@ -22,18 +22,52 @@ ph = PasswordHasher()
 
 # Настройка санитизации
 def sanitize_text(text):
-    """Санитизация текста для предотвращения XSS"""
+    """Санитизация текста для предотвращения XSS с дополнительной валидацией"""
     if not text:
         return text
+    # Length validation
+    if len(text) > 1000:
+        raise ValueError("Text input too long (max 1000 characters)")
     return bleach.clean(text, tags=[], attributes={}, strip=True)
 
 def sanitize_html(text):
-    """Санитизация HTML с разрешением базовых тегов"""
+    """Санитизация HTML с разрешением базовых тегов и дополнительной валидацией"""
     if not text:
         return text
+    # Length validation
+    if len(text) > 5000:
+        raise ValueError("HTML input too long (max 5000 characters)")
     allowed_tags = ['p', 'br', 'strong', 'em', 'u', 'a']
     allowed_attrs = {'a': ['href', 'title']}
     return bleach.clean(text, tags=allowed_tags, attributes=allowed_attrs, strip=True)
+
+def validate_name(name):
+    """Validate nominee/admin name input"""
+    if not name or not isinstance(name, str):
+        raise ValueError("Name is required and must be a string")
+    name = name.strip()
+    if len(name) < 2:
+        raise ValueError("Name must be at least 2 characters long")
+    if len(name) > 100:
+        raise ValueError("Name must be no more than 100 characters long")
+    # Allow only letters, spaces, hyphens, and apostrophes
+    import re
+    if not re.match(r"^[a-zA-Zа-яА-ЯёЁ\s\-']+$", name):
+        raise ValueError("Name contains invalid characters")
+    return name
+
+def validate_description(description):
+    """Validate description input"""
+    if not description or not isinstance(description, str):
+        return ""  # Allow empty descriptions
+    description = description.strip()
+    if len(description) > 1000:
+        raise ValueError("Description must be no more than 1000 characters long")
+    return description
+
+def is_https_request():
+    """Check if the current request is over HTTPS"""
+    return request.is_secure or request.headers.get('X-Forwarded-Proto', '').lower() == 'https'
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
@@ -57,9 +91,45 @@ app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=1)  # Время жи�
 # Инициализация CSRF защиты
 csrf = CSRFProtect(app)
 
-# Инициализация лимитера
-limiter = Limiter(key_func=get_remote_address)
+# Инициализация лимитера с настройками для предотвращения злоупотреблений
+limiter = Limiter(
+    key_func=get_remote_address,
+    default_limits=[],  # No global limits, only specific route limits
+    storage_uri="memory://",  # In production, use Redis or database
+)
 limiter.init_app(app)
+
+@app.after_request
+def add_security_headers(response):
+    """Add security headers to all responses"""
+    # Prevent clickjacking
+    response.headers['X-Frame-Options'] = 'DENY'
+    # Prevent MIME type sniffing
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    # Enable XSS protection
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    # Referrer policy
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    # Permissions policy to disable potentially dangerous features
+    response.headers['Permissions-Policy'] = 'geolocation=(), microphone=(), camera=()'
+
+    # Content Security Policy - restrict resource loading
+    csp = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://code.jquery.com; "
+        "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; "
+        "font-src 'self' https://fonts.gstatic.com; "
+        "img-src 'self' data: https:; "
+        "connect-src 'self'; "
+        "frame-ancestors 'none';"
+    )
+    response.headers['Content-Security-Policy'] = csp
+
+    # HSTS (HTTP Strict Transport Security) - only if HTTPS
+    if is_https_request():
+        response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains; preload'
+
+    return response
 
 # Загрузка конфигурации из переменных окружения
 ADMIN_USERNAME = os.environ.get('ADMIN_USERNAME', 'admin')
@@ -320,7 +390,7 @@ def user_theme():
     if theme not in ('light', 'dark'):
         return jsonify({'ok': False, 'error': 'invalid theme'}), 400
     resp = jsonify({'ok': True, 'theme': theme})
-    resp.set_cookie('theme', theme, max_age=60*60*24*365, httponly=True, secure=True, samesite='Strict')
+    resp.set_cookie('theme', theme, max_age=60*60*24*365, httponly=True, secure=is_https_request(), samesite='Strict')
     return resp
 
 
@@ -363,7 +433,6 @@ def index():
         return render_template('index.html', nominations=[], nomination_vote_status={}, settings=get_settings())
 
 @app.route("/vote/<int:nominee_id>", methods=["POST"])
-@limiter.limit("10 per minute")
 def vote(nominee_id):
     # Backend validation: nominee_id must be positive integer
     if nominee_id <= 0:
@@ -453,10 +522,10 @@ def vote(nominee_id):
                             category = 'success'
                             ok = True
 
-                            # Логирование изменения голосования
+                            # Логирование изменения голосования (без чувствительной информации)
                             nominee_info = db.execute("SELECT name FROM nominees WHERE id = ?", (nominee_id,)).fetchone()
                             nominee_name = nominee_info['name'] if nominee_info else 'Unknown'
-                            vote_logger.info(f"Vote Change: Nominee={nominee_name}, IP={ip}, Browser/Device={user_agent}")
+                            vote_logger.info(f"Vote Change: Nominee={nominee_name}, Nomination={nomination_id}")
                             # Clear the used token
                             session.pop(f'vote_token_{nomination_id}', None)
                             session.pop(f'nonce_{nomination_id}', None)
@@ -468,10 +537,10 @@ def vote(nominee_id):
                         category = 'success'
                         ok = True
 
-                        # Логирование голосования
+                        # Логирование голосования (без чувствительной информации)
                         nominee_info = db.execute("SELECT name FROM nominees WHERE id = ?", (nominee_id,)).fetchone()
                         nominee_name = nominee_info['name'] if nominee_info else 'Unknown'
-                        vote_logger.info(f"Vote: Nominee={nominee_name}, IP={ip}, Browser/Device={user_agent}")
+                        vote_logger.info(f"Vote: Nominee={nominee_name}, Nomination={nomination_id}")
                         # Clear the used token
                         session.pop(f'vote_token_{nomination_id}', None)
                         session.pop(f'nonce_{nomination_id}', None)
@@ -504,7 +573,7 @@ def vote(nominee_id):
     # fallback for normal form submit: redirect back to index with focus param
     redirect_url = url_for("index") + f"?focus=nominee-{nominee_id}"
     resp = make_response(redirect(redirect_url))
-    resp.set_cookie('voter_id', voter_id, max_age=60*60*24*365, httponly=True, samesite='Lax')
+    resp.set_cookie('voter_id', voter_id, max_age=60*60*24*365, httponly=True, secure=is_https_request(), samesite='Strict')
     return resp
     
 
@@ -527,7 +596,7 @@ def nomination_detail(nomination_id):
                     my_vote = vr['nominee_id']
             # Generate vote_token for this nomination page load
             vote_token = secrets.token_hex(16)
-            nonce = str(int(time.time()))  # timestamp as nonce
+            nonce = secrets.token_urlsafe(32)  # cryptographically secure random nonce
             session[f'vote_token_{nomination_id}'] = vote_token
             session[f'nonce_{nomination_id}'] = nonce
         return render_template("nomination.html", nomination=nomination, nominees=nominees, my_vote=my_vote, vote_token=vote_token)
@@ -996,4 +1065,9 @@ def admin_delete(nominee_id):
     return redirect(url_for("admin_panel"))
 
 if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0", port=5000)
+    # Production-ready settings: debug disabled by default, secure host binding
+    debug_mode = os.environ.get('FLASK_DEBUG', 'False').lower() in ('true', '1', 'yes')
+    host = os.environ.get('FLASK_HOST', '127.0.0.1')  # Default to localhost for security
+    port = int(os.environ.get('FLASK_PORT', '5000'))
+
+    app.run(debug=debug_mode, host=host, port=port)
